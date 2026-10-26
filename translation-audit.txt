@@ -1,0 +1,994 @@
+src/types/game.ts:1:export type GameStatus = "available" | "full";
+src/app/index.tsx:2:import { useEffect, useState } from "react";
+src/app/index.tsx:48:          alignItems: "center",
+src/app/index.tsx:49:          justifyContent: "center",
+src/app/index.tsx:53:          size="large"
+src/app/auth/callback.tsx:2:import { useEffect } from "react";
+src/app/auth/callback.tsx:23:      if (Platform.OS === "web") {
+src/app/auth/callback.tsx:60:          searchParams.get("code");
+src/app/auth/callback.tsx:100:        size="large"
+src/app/auth/callback.tsx:115:  alignItems: "center",
+src/app/auth/callback.tsx:116:  justifyContent: "center",
+src/app/(tabs)/index.tsx:3:import { useCallback, useMemo, useState } from "react";
+src/app/(tabs)/index.tsx:35:  status: "available" | "full";
+src/app/(tabs)/index.tsx:39:  payment_method: "free" | "venue" | "organizer";
+src/app/(tabs)/index.tsx:60:  "All Ethiopia",
+src/app/(tabs)/index.tsx:61:  "Addis Ababa",
+src/app/(tabs)/index.tsx:62:  "Adama",
+src/app/(tabs)/index.tsx:63:  "Bahir Dar",
+src/app/(tabs)/index.tsx:64:  "Bishoftu",
+src/app/(tabs)/index.tsx:65:  "Dire Dawa",
+src/app/(tabs)/index.tsx:66:  "Gondar",
+src/app/(tabs)/index.tsx:67:  "Hawassa",
+src/app/(tabs)/index.tsx:68:  "Jimma",
+src/app/(tabs)/index.tsx:69:  "Mekelle",
+src/app/(tabs)/index.tsx:70:  "Dessie",
+src/app/(tabs)/index.tsx:71:  "Arba Minch",
+src/app/(tabs)/index.tsx:72:  "Shashamane",
+src/app/(tabs)/index.tsx:73:  "Harar",
+src/app/(tabs)/index.tsx:80:  const isDesktopWeb = Platform.OS === "web" && width >= 900;
+src/app/(tabs)/index.tsx:93:  const [selectedCity, setSelectedCity] = useState("Addis Ababa");
+src/app/(tabs)/index.tsx:97:  const [sortBy, setSortBy] = useState<"soonest" | "price_low" | "spots">(
+src/app/(tabs)/index.tsx:98:    "soonest",
+src/app/(tabs)/index.tsx:103:  const [priceFilter, setPriceFilter] = useState<"free" | "paid" | null>(null);
+src/app/(tabs)/index.tsx:116:      year: "numeric",
+src/app/(tabs)/index.tsx:132:          weekday: "short",
+src/app/(tabs)/index.tsx:157:            day: "numeric",
+src/app/(tabs)/index.tsx:161:            month: "short",
+src/app/(tabs)/index.tsx:162:            day: "numeric",
+src/app/(tabs)/index.tsx:187:      .from("games")
+src/app/(tabs)/index.tsx:212:      .neq("status", "cancelled")
+src/app/(tabs)/index.tsx:244:      year: "numeric",
+src/app/(tabs)/index.tsx:257:      weekday: "short",
+src/app/(tabs)/index.tsx:258:      month: "short",
+src/app/(tabs)/index.tsx:259:      day: "numeric",
+src/app/(tabs)/index.tsx:279:            selectedCity !== "All Ethiopia" &&
+src/app/(tabs)/index.tsx:280:            (game.city || "Addis Ababa").toLocaleLowerCase() !==
+src/app/(tabs)/index.tsx:333:          selectedCity !== "All Ethiopia" &&
+src/app/(tabs)/index.tsx:334:          (game.city || "Addis Ababa").toLocaleLowerCase() !==
+src/app/(tabs)/index.tsx:360:        if (priceFilter === "free" && game.payment_method !== "free") {
+src/app/(tabs)/index.tsx:364:        if (priceFilter === "paid" && game.payment_method === "free") {
+src/app/(tabs)/index.tsx:375:        if (sortBy === "spots") {
+src/app/(tabs)/index.tsx:401:    const quickDate = dates.find((item) => item.key === selectedDate);
+src/app/(tabs)/index.tsx:424:              month: "short",
+src/app/(tabs)/index.tsx:425:              day: "numeric",
+src/app/(tabs)/index.tsx:426:              year: "numeric",
+src/app/(tabs)/index.tsx:432:    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+src/app/(tabs)/index.tsx:440:          keyboardShouldPersistTaps="handled"
+src/app/(tabs)/index.tsx:450:                onPress={() => setCityModalVisible(true)}
+src/app/(tabs)/index.tsx:469:              <Ionicons name="notifications" size={22} color={COLORS.text} />
+src/app/(tabs)/index.tsx:479:              <Ionicons name="search" size={21} color={COLORS.text} />
+src/app/(tabs)/index.tsx:487:                autoCapitalize="none"
+src/app/(tabs)/index.tsx:495:                  onPress={() => setSearch("")}
+src/app/(tabs)/index.tsx:499:                    name="close"
+src/app/(tabs)/index.tsx:514:                    sortBy !== "soonest") &&
+src/app/(tabs)/index.tsx:517:                onPress={() => setFilterModalVisible(true)}
+src/app/(tabs)/index.tsx:527:                    sortBy !== "soonest"
+src/app/(tabs)/index.tsx:550:                  onPress={() => setSelectedDate(item.key)}
+src/app/(tabs)/index.tsx:578:              onPress={() => setCalendarVisible(true)}
+src/app/(tabs)/index.tsx:579:              accessibilityRole="button"
+src/app/(tabs)/index.tsx:617:              <ActivityIndicator size="large" color={COLORS.primary} />
+src/app/(tabs)/index.tsx:687:          animationType="fade"
+src/app/(tabs)/index.tsx:688:          onRequestClose={() => setCityModalVisible(false)}
+src/app/(tabs)/index.tsx:692:            onPress={() => setCityModalVisible(false)}
+src/app/(tabs)/index.tsx:696:              onPress={(event) => event.stopPropagation()}
+src/app/(tabs)/index.tsx:705:                  onPress={() => setCityModalVisible(false)}
+src/app/(tabs)/index.tsx:707:                  <Ionicons name="close" size={24} color={COLORS.text} />
+src/app/(tabs)/index.tsx:757:          animationType="fade"
+src/app/(tabs)/index.tsx:758:          onRequestClose={() => setCalendarVisible(false)}
+src/app/(tabs)/index.tsx:762:            onPress={() => setCalendarVisible(false)}
+src/app/(tabs)/index.tsx:766:              onPress={(event) => event.stopPropagation()}
+src/app/(tabs)/index.tsx:781:                  onPress={() => setCalendarVisible(false)}
+src/app/(tabs)/index.tsx:783:                  <Ionicons name="close" size={24} color={COLORS.text} />
+src/app/(tabs)/index.tsx:839:          animationType="slide"
+src/app/(tabs)/index.tsx:840:          onRequestClose={() => setFilterModalVisible(false)}
+src/app/(tabs)/index.tsx:857:                  <Pressable onPress={() => setFilterModalVisible(false)}>
+src/app/(tabs)/index.tsx:858:                    <Ionicons name="close" size={26} color={COLORS.text} />
+src/app/(tabs)/index.tsx:870:                    ["soonest", t("discover.soonest")],
+src/app/(tabs)/index.tsx:872:                    ["spots", t("discover.mostSpotsAvailable")],
+src/app/(tabs)/index.tsx:884:                          setSortBy(value as "soonest" | "price_low" | "spots")
+src/app/(tabs)/index.tsx:909:                    ["free", t("discover.free")],
+src/app/(tabs)/index.tsx:910:                    ["paid", t("discover.paid")],
+src/app/(tabs)/index.tsx:922:                          setPriceFilter(value as "free" | "paid" | null)
+src/app/(tabs)/index.tsx:947:                    ["Beginner", t("discover.beginner")],
+src/app/(tabs)/index.tsx:948:                    ["Intermediate", t("discover.intermediate")],
+src/app/(tabs)/index.tsx:949:                    ["Advanced", t("discover.advanced")],
+src/app/(tabs)/index.tsx:960:                        onPress={() => setSkillFilter(value)}
+src/app/(tabs)/index.tsx:998:                        onPress={() => setFormatFilter(value)}
+src/app/(tabs)/index.tsx:1020:                    setSortBy("soonest");
+src/app/(tabs)/index.tsx:1033:                  onPress={() => setFilterModalVisible(false)}
+src/app/(tabs)/index.tsx:1067:  "Fulbaana",
+src/app/(tabs)/index.tsx:1068:  "Onkololeessa",
+src/app/(tabs)/index.tsx:1069:  "Sadaasa",
+src/app/(tabs)/index.tsx:1070:  "Muddee",
+src/app/(tabs)/index.tsx:1071:  "Amajjii",
+src/app/(tabs)/index.tsx:1072:  "Guraandhala",
+src/app/(tabs)/index.tsx:1073:  "Bitooteessa",
+src/app/(tabs)/index.tsx:1074:  "Ebla",
+src/app/(tabs)/index.tsx:1075:  "Caamsaa",
+src/app/(tabs)/index.tsx:1076:  "Waxabajjii",
+src/app/(tabs)/index.tsx:1077:  "Adooleessa",
+src/app/(tabs)/index.tsx:1078:  "Hagayya",
+src/app/(tabs)/index.tsx:1079:  "Qaammee",
+src/app/(tabs)/index.tsx:1121:    year: "numeric",
+src/app/(tabs)/index.tsx:1122:    month: "numeric",
+src/app/(tabs)/index.tsx:1123:    day: "numeric",
+src/app/(tabs)/index.tsx:1126:  const year = Number(parts.find((part) => part.type === "year")?.value);
+src/app/(tabs)/index.tsx:1128:  const month = Number(parts.find((part) => part.type === "month")?.value);
+src/app/(tabs)/index.tsx:1130:  const day = Number(parts.find((part) => part.type === "day")?.value);
+src/app/(tabs)/index.tsx:1181:    year: "numeric",
+src/app/(tabs)/index.tsx:1198:  onSelect: (gregorianDate: string) => void;
+src/app/(tabs)/index.tsx:1201:    () => getEthiopianDate(new Date(), language),
+src/app/(tabs)/index.tsx:1213:          "Wiixata",
+src/app/(tabs)/index.tsx:1214:          "Kibxata",
+src/app/(tabs)/index.tsx:1215:          "Roobii",
+src/app/(tabs)/index.tsx:1216:          "Kamiisa",
+src/app/(tabs)/index.tsx:1217:          "Jimaata",
+src/app/(tabs)/index.tsx:1218:          "Sanbata",
+src/app/(tabs)/index.tsx:1219:          "Dilbata",
+src/app/(tabs)/index.tsx:1237:    ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+src/app/(tabs)/index.tsx:1252:      setViewYear((year) => year - 1);
+src/app/(tabs)/index.tsx:1254:      setViewMonth((month) => month - 1);
+src/app/(tabs)/index.tsx:1261:      setViewYear((year) => year + 1);
+src/app/(tabs)/index.tsx:1263:      setViewMonth((month) => month + 1);
+src/app/(tabs)/index.tsx:1312:              onPress={() => onSelect(gregorianKey)}
+src/app/(tabs)/index.tsx:1338:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1339:    flexWrap: "wrap",
+src/app/(tabs)/index.tsx:1390:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1391:    alignItems: "center",
+src/app/(tabs)/index.tsx:1411:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1412:    alignItems: "center",
+src/app/(tabs)/index.tsx:1425:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1436:    alignItems: "center",
+src/app/(tabs)/index.tsx:1437:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1452:    alignItems: "center",
+src/app/(tabs)/index.tsx:1453:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1470:    alignSelf: "center",
+src/app/(tabs)/index.tsx:1486:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1488:    alignItems: "center",
+src/app/(tabs)/index.tsx:1500:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1501:    alignItems: "center",
+src/app/(tabs)/index.tsx:1516:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1517:    alignItems: "center",
+src/app/(tabs)/index.tsx:1533:    position: "absolute",
+src/app/(tabs)/index.tsx:1545:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1555:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1556:    alignItems: "center",
+src/app/(tabs)/index.tsx:1584:    alignItems: "center",
+src/app/(tabs)/index.tsx:1585:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1599:    alignItems: "center",
+src/app/(tabs)/index.tsx:1600:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1612:    alignItems: "center",
+src/app/(tabs)/index.tsx:1613:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1629:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1630:    alignItems: "center",
+src/app/(tabs)/index.tsx:1660:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1694:    alignItems: "center",
+src/app/(tabs)/index.tsx:1705:    alignItems: "center",
+src/app/(tabs)/index.tsx:1717:    alignItems: "center",
+src/app/(tabs)/index.tsx:1718:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1732:    textAlign: "center",
+src/app/(tabs)/index.tsx:1746:    textTransform: "uppercase",
+src/app/(tabs)/index.tsx:1750:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1751:    alignItems: "center",
+src/app/(tabs)/index.tsx:1759:    alignItems: "center",
+src/app/(tabs)/index.tsx:1760:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1770:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1776:    textAlign: "center",
+src/app/(tabs)/index.tsx:1783:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1784:    flexWrap: "wrap",
+src/app/(tabs)/index.tsx:1790:    alignItems: "center",
+src/app/(tabs)/index.tsx:1791:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1798:    alignItems: "center",
+src/app/(tabs)/index.tsx:1799:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1831:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1832:    alignItems: "center",
+src/app/(tabs)/index.tsx:1857:    justifyContent: "center",
+src/app/(tabs)/index.tsx:1864:    alignSelf: "center",
+src/app/(tabs)/index.tsx:1882:    flexDirection: "row",
+src/app/(tabs)/index.tsx:1883:    alignItems: "center",
+src/app/(tabs)/index.tsx:1904:    alignItems: "center",
+src/app/(tabs)/index.tsx:1905:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:5:import { useCallback, useMemo, useState } from "react";
+src/app/(tabs)/bookings.tsx:34:  | "confirmed"
+src/app/(tabs)/bookings.tsx:35:  | "waitlisted"
+src/app/(tabs)/bookings.tsx:41:  | "pending"
+src/app/(tabs)/bookings.tsx:42:  | "submitted"
+src/app/(tabs)/bookings.tsx:43:  | "paid"
+src/app/(tabs)/bookings.tsx:44:  | "failed"
+src/app/(tabs)/bookings.tsx:46:  | "refunded"
+src/app/(tabs)/bookings.tsx:49:type PaymentMethod = "free" | "venue" | "organizer";
+src/app/(tabs)/bookings.tsx:108:  const isDesktopWeb = Platform.OS === "web" && width >= 900;
+src/app/(tabs)/bookings.tsx:135:  const [bookingSortBy, setBookingSortBy] = useState<"upcoming" | "latest">(
+src/app/(tabs)/bookings.tsx:136:    "upcoming",
+src/app/(tabs)/bookings.tsx:140:    "all" | "confirmed" | "payment_required" | "waitlisted"
+src/app/(tabs)/bookings.tsx:141:  >("all");
+src/app/(tabs)/bookings.tsx:160:        console.log("Booking user error:", userError?.message || "No user");
+src/app/(tabs)/bookings.tsx:169:        .from("bookings")
+src/app/(tabs)/bookings.tsx:349:          bookingStatusFilter === "confirmed" &&
+src/app/(tabs)/bookings.tsx:350:          booking.status !== "confirmed"
+src/app/(tabs)/bookings.tsx:359:            booking.payment_status === "pending"
+src/app/(tabs)/bookings.tsx:366:          bookingStatusFilter === "waitlisted" &&
+src/app/(tabs)/bookings.tsx:367:          booking.status !== "waitlisted"
+src/app/(tabs)/bookings.tsx:383:        return bookingSortBy === "latest" ? bTime - aTime : aTime - bTime;
+src/app/(tabs)/bookings.tsx:390:      booking.games.payment_method !== "organizer" ||
+src/app/(tabs)/bookings.tsx:392:      booking.payment_status === "submitted"
+src/app/(tabs)/bookings.tsx:418:      if (Platform.OS === "web") {
+src/app/(tabs)/bookings.tsx:427:    if (booking.status !== "confirmed" && booking.status !== "waitlisted") {
+src/app/(tabs)/bookings.tsx:459:    if (booking.status !== "confirmed" && booking.status !== "waitlisted") {
+src/app/(tabs)/bookings.tsx:499:        game.payment_method !== "organizer" &&
+src/app/(tabs)/bookings.tsx:500:        booking.payment_status === "paid" &&
+src/app/(tabs)/bookings.tsx:532:  const selectedIsWaitlisted = selectedBooking?.status === "waitlisted";
+src/app/(tabs)/bookings.tsx:535:    selectedBooking?.games?.payment_method === "organizer" &&
+src/app/(tabs)/bookings.tsx:536:    selectedBooking?.payment_status === "paid";
+src/app/(tabs)/bookings.tsx:551:    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+src/app/(tabs)/bookings.tsx:569:            <Ionicons name="search" size={21} color="#B0B0B0" />
+src/app/(tabs)/bookings.tsx:577:              autoCapitalize="none"
+src/app/(tabs)/bookings.tsx:585:                onPress={() => setSearch("")}
+src/app/(tabs)/bookings.tsx:588:                <Ionicons name="close" size={23} color={COLORS.textSecondary} />
+src/app/(tabs)/bookings.tsx:597:                (bookingStatusFilter !== "all" ||
+src/app/(tabs)/bookings.tsx:598:                  bookingSortBy !== "upcoming") &&
+src/app/(tabs)/bookings.tsx:601:              onPress={() => setBookingFilterVisible(true)}
+src/app/(tabs)/bookings.tsx:608:                  bookingStatusFilter !== "all" || bookingSortBy !== "upcoming"
+src/app/(tabs)/bookings.tsx:621:            onPress={() => setCalendarVisible(true)}
+src/app/(tabs)/bookings.tsx:622:            accessibilityRole="button"
+src/app/(tabs)/bookings.tsx:647:                      month: "short",
+src/app/(tabs)/bookings.tsx:648:                      day: "numeric",
+src/app/(tabs)/bookings.tsx:649:                      year: "numeric",
+src/app/(tabs)/bookings.tsx:650:                      timeZone: "UTC",
+src/app/(tabs)/bookings.tsx:654:            <Pressable onPress={() => setSelectedDate(null)}>
+src/app/(tabs)/bookings.tsx:666:            <ActivityIndicator size="large" color={COLORS.primary} />
+src/app/(tabs)/bookings.tsx:697:              const isWaitlisted = booking.status === "waitlisted";
+src/app/(tabs)/bookings.tsx:699:              const isConfirmed = booking.status === "confirmed";
+src/app/(tabs)/bookings.tsx:711:              const isOrganizerPayment = game.payment_method === "organizer";
+src/app/(tabs)/bookings.tsx:716:                booking.payment_status === "pending";
+src/app/(tabs)/bookings.tsx:721:                booking.payment_status === "submitted";
+src/app/(tabs)/bookings.tsx:726:                booking.payment_status === "paid";
+src/app/(tabs)/bookings.tsx:783:                      onPress={() => router.push(`/game/${game.id}`)}
+src/app/(tabs)/bookings.tsx:858:                          {game.payment_method === "free"
+src/app/(tabs)/bookings.tsx:896:                              {game.payment_provider || "Telebirr"}
+src/app/(tabs)/bookings.tsx:926:                                  textAlign: "right",
+src/app/(tabs)/bookings.tsx:962:                          onPress={() => submitOrganizerPayment(booking)}
+src/app/(tabs)/bookings.tsx:968:                              size="small"
+src/app/(tabs)/bookings.tsx:1026:                            {game.payment_provider || "Telebirr"}
+src/app/(tabs)/bookings.tsx:1034:                    {game.payment_method === "venue" &&
+src/app/(tabs)/bookings.tsx:1066:                      (booking.payment_status === "paid" ||
+src/app/(tabs)/bookings.tsx:1067:                        booking.payment_status === "submitted") && (
+src/app/(tabs)/bookings.tsx:1150:                        (booking.payment_status === "paid" ||
+src/app/(tabs)/bookings.tsx:1151:                          booking.payment_status === "submitted")
+src/app/(tabs)/bookings.tsx:1178:                        onPress={() => openCancellationModal(booking)}
+src/app/(tabs)/bookings.tsx:1183:                          <ActivityIndicator size="small" color="#C13515" />
+src/app/(tabs)/bookings.tsx:1205:        animationType="fade"
+src/app/(tabs)/bookings.tsx:1206:        onRequestClose={() => setCalendarVisible(false)}
+src/app/(tabs)/bookings.tsx:1210:          onPress={() => setCalendarVisible(false)}
+src/app/(tabs)/bookings.tsx:1214:            onPress={(event) => event.stopPropagation()}
+src/app/(tabs)/bookings.tsx:1229:                onPress={() => setCalendarVisible(false)}
+src/app/(tabs)/bookings.tsx:1231:                <Ionicons name="close" size={24} color={COLORS.text} />
+src/app/(tabs)/bookings.tsx:1284:        animationType="slide"
+src/app/(tabs)/bookings.tsx:1285:        onRequestClose={() => setBookingFilterVisible(false)}
+src/app/(tabs)/bookings.tsx:1294:              <Pressable onPress={() => setBookingFilterVisible(false)}>
+src/app/(tabs)/bookings.tsx:1295:                <Ionicons name="close" size={26} color={COLORS.text} />
+src/app/(tabs)/bookings.tsx:1307:                ["upcoming", t("bookings.upcomingFirst")],
+src/app/(tabs)/bookings.tsx:1308:                ["latest", t("bookings.latestFirst")],
+src/app/(tabs)/bookings.tsx:1320:                      setBookingSortBy(value as "upcoming" | "latest")
+src/app/(tabs)/bookings.tsx:1344:                ["all", t("bookings.allBookings")],
+src/app/(tabs)/bookings.tsx:1345:                ["confirmed", t("bookings.confirmed")],
+src/app/(tabs)/bookings.tsx:1347:                ["waitlisted", t("bookings.waitlisted")],
+src/app/(tabs)/bookings.tsx:1361:                          | "all"
+src/app/(tabs)/bookings.tsx:1362:                          | "confirmed"
+src/app/(tabs)/bookings.tsx:1364:                          | "waitlisted",
+src/app/(tabs)/bookings.tsx:1387:                  setBookingSortBy("upcoming");
+src/app/(tabs)/bookings.tsx:1388:                  setBookingStatusFilter("all");
+src/app/(tabs)/bookings.tsx:1398:                onPress={() => setBookingFilterVisible(false)}
+src/app/(tabs)/bookings.tsx:1465:  t: (key: string) => string,
+src/app/(tabs)/bookings.tsx:1476:    if (organizerPayment && paymentStatus === "submitted") {
+src/app/(tabs)/bookings.tsx:1499:  if (status === "confirmed") {
+src/app/(tabs)/bookings.tsx:1511:  if (status === "waitlisted") {
+src/app/(tabs)/bookings.tsx:1549:    year: "numeric",
+src/app/(tabs)/bookings.tsx:1561:    year: "numeric",
+src/app/(tabs)/bookings.tsx:1562:    month: "numeric",
+src/app/(tabs)/bookings.tsx:1563:    day: "numeric",
+src/app/(tabs)/bookings.tsx:1566:  const year = Number(parts.find((p) => p.type === "year")?.value);
+src/app/(tabs)/bookings.tsx:1567:  const month = Number(parts.find((p) => p.type === "month")?.value);
+src/app/(tabs)/bookings.tsx:1568:  const day = Number(parts.find((p) => p.type === "day")?.value);
+src/app/(tabs)/bookings.tsx:1570:  // Gregorian -> Julian Day Number
+src/app/(tabs)/bookings.tsx:1584:  // Julian Day Number -> Ethiopian calendar
+src/app/(tabs)/bookings.tsx:1614:    "Fulbaana",
+src/app/(tabs)/bookings.tsx:1615:    "Onkololeessa",
+src/app/(tabs)/bookings.tsx:1616:    "Sadaasa",
+src/app/(tabs)/bookings.tsx:1617:    "Muddee",
+src/app/(tabs)/bookings.tsx:1618:    "Amajjii",
+src/app/(tabs)/bookings.tsx:1619:    "Guraandhala",
+src/app/(tabs)/bookings.tsx:1620:    "Bitooteessa",
+src/app/(tabs)/bookings.tsx:1621:    "Ebla",
+src/app/(tabs)/bookings.tsx:1622:    "Caamsaa",
+src/app/(tabs)/bookings.tsx:1623:    "Waxabajjii",
+src/app/(tabs)/bookings.tsx:1624:    "Adooleessa",
+src/app/(tabs)/bookings.tsx:1625:    "Hagayya",
+src/app/(tabs)/bookings.tsx:1626:    "Qaammee",
+src/app/(tabs)/bookings.tsx:1638:    weekday: "short",
+src/app/(tabs)/bookings.tsx:1640:    month: "short",
+src/app/(tabs)/bookings.tsx:1642:    day: "numeric",
+src/app/(tabs)/bookings.tsx:1644:    year: "numeric",
+src/app/(tabs)/bookings.tsx:1667:  "Fulbaana",
+src/app/(tabs)/bookings.tsx:1668:  "Onkololeessa",
+src/app/(tabs)/bookings.tsx:1669:  "Sadaasa",
+src/app/(tabs)/bookings.tsx:1670:  "Muddee",
+src/app/(tabs)/bookings.tsx:1671:  "Amajjii",
+src/app/(tabs)/bookings.tsx:1672:  "Guraandhala",
+src/app/(tabs)/bookings.tsx:1673:  "Bitooteessa",
+src/app/(tabs)/bookings.tsx:1674:  "Ebla",
+src/app/(tabs)/bookings.tsx:1675:  "Caamsaa",
+src/app/(tabs)/bookings.tsx:1676:  "Waxabajjii",
+src/app/(tabs)/bookings.tsx:1677:  "Adooleessa",
+src/app/(tabs)/bookings.tsx:1678:  "Hagayya",
+src/app/(tabs)/bookings.tsx:1679:  "Qaammee",
+src/app/(tabs)/bookings.tsx:1721:    year: "numeric",
+src/app/(tabs)/bookings.tsx:1722:    month: "numeric",
+src/app/(tabs)/bookings.tsx:1723:    day: "numeric",
+src/app/(tabs)/bookings.tsx:1726:  const year = Number(parts.find((part) => part.type === "year")?.value);
+src/app/(tabs)/bookings.tsx:1727:  const month = Number(parts.find((part) => part.type === "month")?.value);
+src/app/(tabs)/bookings.tsx:1728:  const day = Number(parts.find((part) => part.type === "day")?.value);
+src/app/(tabs)/bookings.tsx:1778:    year: "numeric",
+src/app/(tabs)/bookings.tsx:1795:  onSelect: (gregorianDate: string) => void;
+src/app/(tabs)/bookings.tsx:1798:    () => getEthiopianDate(new Date(), language),
+src/app/(tabs)/bookings.tsx:1810:          "Wiixata",
+src/app/(tabs)/bookings.tsx:1811:          "Kibxata",
+src/app/(tabs)/bookings.tsx:1812:          "Roobii",
+src/app/(tabs)/bookings.tsx:1813:          "Kamiisa",
+src/app/(tabs)/bookings.tsx:1814:          "Jimaata",
+src/app/(tabs)/bookings.tsx:1815:          "Sanbata",
+src/app/(tabs)/bookings.tsx:1816:          "Dilbata",
+src/app/(tabs)/bookings.tsx:1834:    ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+src/app/(tabs)/bookings.tsx:1846:      setViewYear((year) => year - 1);
+src/app/(tabs)/bookings.tsx:1848:      setViewMonth((month) => month - 1);
+src/app/(tabs)/bookings.tsx:1855:      setViewYear((year) => year + 1);
+src/app/(tabs)/bookings.tsx:1857:      setViewMonth((month) => month + 1);
+src/app/(tabs)/bookings.tsx:1906:              onPress={() => onSelect(gregorianKey)}
+src/app/(tabs)/bookings.tsx:1947:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:1948:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:1968:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:1969:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:1982:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:1983:    flexWrap: "wrap",
+src/app/(tabs)/bookings.tsx:2013:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2024:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2025:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2039:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2040:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2053:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2054:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2065:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2066:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2090:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2091:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2105:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2106:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2120:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2121:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2131:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2132:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2151:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2152:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2160:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2161:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2171:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2177:    textAlign: "center",
+src/app/(tabs)/bookings.tsx:2184:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2185:    flexWrap: "wrap",
+src/app/(tabs)/bookings.tsx:2191:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2192:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2199:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2200:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2230:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2237:    alignSelf: "center",
+src/app/(tabs)/bookings.tsx:2246:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2247:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2268:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2269:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2294:    alignSelf: "center",
+src/app/(tabs)/bookings.tsx:2316:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2330:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2346:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2348:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2368:    textAlign: "center",
+src/app/(tabs)/bookings.tsx:2380:    overflow: "hidden",
+src/app/(tabs)/bookings.tsx:2388:    position: "relative",
+src/app/(tabs)/bookings.tsx:2404:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2406:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2414:    position: "absolute",
+src/app/(tabs)/bookings.tsx:2420:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2422:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2452:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2457:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2459:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2495:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2496:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2508:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2510:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2515:    backgroundColor: "transparent",
+src/app/(tabs)/bookings.tsx:2551:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2589:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2591:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2645:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2647:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2649:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2663:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2664:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2683:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2719:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2765:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2843:    flexDirection: "row",
+src/app/(tabs)/bookings.tsx:2845:    alignItems: "center",
+src/app/(tabs)/bookings.tsx:2847:    justifyContent: "center",
+src/app/(tabs)/bookings.tsx:2871:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:5:import { useEffect, useState } from "react";
+src/app/(tabs)/profile.tsx:30:const skillLevels = ["Beginner", "Intermediate", "Advanced"];
+src/app/(tabs)/profile.tsx:35:  const isDesktopWeb = Platform.OS === "web" && width >= 900;
+src/app/(tabs)/profile.tsx:43:  const [role, setRole] = useState("player");
+src/app/(tabs)/profile.tsx:72:        userError?.message || "No user",
+src/app/(tabs)/profile.tsx:84:      .from("profiles")
+src/app/(tabs)/profile.tsx:107:      setRole(data.role || "player");
+src/app/(tabs)/profile.tsx:156:      .from("profiles")
+src/app/(tabs)/profile.tsx:207:  const canManageGames = role === "admin" || role === "organizer";
+src/app/(tabs)/profile.tsx:210:    if (level === "Beginner") {
+src/app/(tabs)/profile.tsx:214:    if (level === "Intermediate") {
+src/app/(tabs)/profile.tsx:218:    if (level === "Advanced") {
+src/app/(tabs)/profile.tsx:230:        edges={["top"]}
+src/app/(tabs)/profile.tsx:234:            size="large"
+src/app/(tabs)/profile.tsx:249:      edges={["top"]}
+src/app/(tabs)/profile.tsx:262:        keyboardShouldPersistTaps="handled"
+src/app/(tabs)/profile.tsx:264:        keyboardDismissMode="none"
+src/app/(tabs)/profile.tsx:275:              name="person"
+src/app/(tabs)/profile.tsx:302:                {role === "admin" ? t("profile.admin") : t("profile.organizer")}
+src/app/(tabs)/profile.tsx:326:                onPress={() => changeLanguage(option.code)}
+src/app/(tabs)/profile.tsx:379:          returnKeyType="done"
+src/app/(tabs)/profile.tsx:428:                onPress={() => setSkillLevel(level)}
+src/app/(tabs)/profile.tsx:497:              onPress={() => router.push("/admin/create-game")}
+src/app/(tabs)/profile.tsx:533:              onPress={() => router.push("/admin/manage-games")}
+src/app/(tabs)/profile.tsx:569:              onPress={() => router.push("/admin/payment-requests")}
+src/app/(tabs)/profile.tsx:648:    alignSelf: "center",
+src/app/(tabs)/profile.tsx:659:    alignItems: "center",
+src/app/(tabs)/profile.tsx:661:    justifyContent: "center",
+src/app/(tabs)/profile.tsx:684:    alignItems: "center",
+src/app/(tabs)/profile.tsx:694:    alignItems: "center",
+src/app/(tabs)/profile.tsx:695:    justifyContent: "center",
+src/app/(tabs)/profile.tsx:714:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:715:    alignItems: "center",
+src/app/(tabs)/profile.tsx:752:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:753:    alignItems: "center",
+src/app/(tabs)/profile.tsx:763:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:765:    alignItems: "center",
+src/app/(tabs)/profile.tsx:808:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:809:    alignItems: "center",
+src/app/(tabs)/profile.tsx:826:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:839:    alignItems: "center",
+src/app/(tabs)/profile.tsx:841:    justifyContent: "center",
+src/app/(tabs)/profile.tsx:843:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:869:    alignItems: "center",
+src/app/(tabs)/profile.tsx:870:    justifyContent: "center",
+src/app/(tabs)/profile.tsx:895:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:897:    alignItems: "center",
+src/app/(tabs)/profile.tsx:910:    alignItems: "center",
+src/app/(tabs)/profile.tsx:912:    justifyContent: "center",
+src/app/(tabs)/profile.tsx:931:    flexDirection: "row",
+src/app/(tabs)/profile.tsx:932:    alignItems: "center",
+src/app/(tabs)/profile.tsx:943:    alignItems: "center",
+src/app/(tabs)/profile.tsx:945:    justifyContent: "center",
+src/app/(tabs)/profile.tsx:961:    alignSelf: "center",
+src/app/(tabs)/profile.tsx:964:    alignItems: "center",
+src/app/(tabs)/profile.tsx:965:    justifyContent: "center",
+src/app/(tabs)/profile.tsx:966:    flexDirection: "row",
+src/app/(tabs)/_layout.tsx:21:    Platform.OS === "web" && width >= 900;
+src/app/(tabs)/_layout.tsx:31:              name="football"
+src/app/(tabs)/_layout.tsx:60:            ? "left"
+src/app/(tabs)/_layout.tsx:61:            : "bottom",
+src/app/(tabs)/_layout.tsx:128:          name="index"
+src/app/(tabs)/_layout.tsx:139:                    ? "football"
+src/app/(tabs)/_layout.tsx:150:          name="bookings"
+src/app/(tabs)/_layout.tsx:161:                    ? "calendar"
+src/app/(tabs)/_layout.tsx:172:          name="profile"
+src/app/(tabs)/_layout.tsx:183:                    ? "person"
+src/app/(tabs)/_layout.tsx:204:    position: "absolute",
+src/app/(tabs)/_layout.tsx:209:    flexDirection: "row",
+src/app/(tabs)/_layout.tsx:210:    alignItems: "center",
+src/app/(tabs)/_layout.tsx:221:    alignItems: "center",
+src/app/(tabs)/_layout.tsx:222:    justifyContent: "center",
+src/app/admin/manage-games.tsx:5:import { useCallback, useState } from "react";
+src/app/admin/manage-games.tsx:22:type UserRole = "admin" | "organizer" | "player";
+src/app/admin/manage-games.tsx:43:  payment_method: "free" | "venue" | "organizer";
+src/app/admin/manage-games.tsx:88:        userError?.message || "No user",
+src/app/admin/manage-games.tsx:102:      .from("profiles")
+src/app/admin/manage-games.tsx:104:      .select("role")
+src/app/admin/manage-games.tsx:128:    if (userRole !== "admin" && userRole !== "organizer") {
+src/app/admin/manage-games.tsx:133:      setRole(userRole || "player");
+src/app/admin/manage-games.tsx:168:    let gamesQuery = supabase.from("games").select(`
+src/app/admin/manage-games.tsx:226:    if (userRole === "organizer") {
+src/app/admin/manage-games.tsx:272:            size="large"
+src/app/admin/manage-games.tsx:299:          onPress={() => router.replace("/(tabs)/profile")}
+src/app/admin/manage-games.tsx:317:              {role === "admin"
+src/app/admin/manage-games.tsx:323:          {(role === "admin" || role === "organizer") && (
+src/app/admin/manage-games.tsx:331:              onPress={() => router.push("/admin/create-game")}
+src/app/admin/manage-games.tsx:334:                name="add"
+src/app/admin/manage-games.tsx:344:        {role === "admin" && (
+src/app/admin/manage-games.tsx:360:        {role === "organizer" && (
+src/app/admin/manage-games.tsx:391:              {role === "organizer"
+src/app/admin/manage-games.tsx:396:            {(role === "admin" || role === "organizer") && (
+src/app/admin/manage-games.tsx:404:                onPress={() => router.push("/admin/create-game")}
+src/app/admin/manage-games.tsx:415:              const isCancelled = game.status === "cancelled";
+src/app/admin/manage-games.tsx:419:                (game.status === "full" || game.spots_left <= 0);
+src/app/admin/manage-games.tsx:548:                        {game.payment_method === "free"
+src/app/admin/manage-games.tsx:550:                          : game.payment_method === "venue"
+src/app/admin/manage-games.tsx:565:                      onPress={() => openEditGame(game)}
+src/app/admin/manage-games.tsx:595:                      onPress={() => openEditGame(game)}
+src/app/admin/manage-games.tsx:652:    alignItems: "center",
+src/app/admin/manage-games.tsx:654:    justifyContent: "center",
+src/app/admin/manage-games.tsx:668:    flexDirection: "row",
+src/app/admin/manage-games.tsx:670:    alignItems: "center",
+src/app/admin/manage-games.tsx:688:    flexDirection: "row",
+src/app/admin/manage-games.tsx:690:    alignItems: "center",
+src/app/admin/manage-games.tsx:721:    alignItems: "center",
+src/app/admin/manage-games.tsx:723:    justifyContent: "center",
+src/app/admin/manage-games.tsx:737:    flexDirection: "row",
+src/app/admin/manage-games.tsx:739:    alignItems: "center",
+src/app/admin/manage-games.tsx:755:    alignItems: "center",
+src/app/admin/manage-games.tsx:769:    alignItems: "center",
+src/app/admin/manage-games.tsx:771:    justifyContent: "center",
+src/app/admin/manage-games.tsx:791:    textAlign: "center",
+src/app/admin/manage-games.tsx:803:    alignItems: "center",
+src/app/admin/manage-games.tsx:805:    justifyContent: "center",
+src/app/admin/manage-games.tsx:838:    flexDirection: "row",
+src/app/admin/manage-games.tsx:842:    alignItems: "center",
+src/app/admin/manage-games.tsx:848:    flexDirection: "row",
+src/app/admin/manage-games.tsx:850:    alignItems: "center",
+src/app/admin/manage-games.tsx:935:    flexDirection: "row",
+src/app/admin/manage-games.tsx:937:    alignItems: "center",
+src/app/admin/manage-games.tsx:951:    flexDirection: "row",
+src/app/admin/manage-games.tsx:952:    flexWrap: "wrap",
+src/app/admin/manage-games.tsx:971:    textTransform: "uppercase",
+src/app/admin/manage-games.tsx:988:    flexDirection: "row",
+src/app/admin/manage-games.tsx:990:    alignItems: "center",
+src/app/admin/manage-games.tsx:1011:    flexDirection: "row",
+src/app/admin/manage-games.tsx:1013:    alignItems: "center",
+src/app/admin/edit-game.tsx:5:import { useEffect, useState } from "react";
+src/app/admin/edit-game.tsx:43:  const [city, setCity] = useState("Addis Ababa");
+src/app/admin/edit-game.tsx:68:    "free" | "venue" | "organizer"
+src/app/admin/edit-game.tsx:69:  >("organizer");
+src/app/admin/edit-game.tsx:108:      .from("games")
+src/app/admin/edit-game.tsx:218:    setCity(data.city || "Addis Ababa");
+src/app/admin/edit-game.tsx:233:      data.payment_method === "free" ||
+src/app/admin/edit-game.tsx:234:        data.payment_method === "venue" ||
+src/app/admin/edit-game.tsx:235:        data.payment_method === "organizer"
+src/app/admin/edit-game.tsx:237:        : "organizer",
+src/app/admin/edit-game.tsx:250:    setStatus(data.status || "available");
+src/app/admin/edit-game.tsx:322:    if (status === "cancelled") {
+src/app/admin/edit-game.tsx:414:    const numericPrice = paymentMethod === "free" ? 0 : Number(price);
+src/app/admin/edit-game.tsx:416:    if (paymentMethod !== "free") {
+src/app/admin/edit-game.tsx:428:    if (paymentMethod === "organizer") {
+src/app/admin/edit-game.tsx:534:        paymentMethod === "organizer" ? paymentProvider.trim() : null,
+src/app/admin/edit-game.tsx:537:        paymentMethod === "organizer" ? paymentPhone.trim() : null,
+src/app/admin/edit-game.tsx:540:        paymentMethod === "organizer" ? paymentAccountName.trim() : null,
+src/app/admin/edit-game.tsx:627:    if (paymentMethod === "organizer") {
+src/app/admin/edit-game.tsx:657:    if (paymentMethod === "free" || paymentMethod === "venue") {
+src/app/admin/edit-game.tsx:778:    if (status === "cancelled" || cancelling || saving) {
+src/app/admin/edit-game.tsx:786:    if (Platform.OS === "web" && typeof window !== "undefined") {
+src/app/admin/edit-game.tsx:797:      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+src/app/admin/edit-game.tsx:799:          <ActivityIndicator size="large" color={COLORS.primary} />
+src/app/admin/edit-game.tsx:809:      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+src/app/admin/edit-game.tsx:818:            onPress={() => router.replace("/admin/manage-games")}
+src/app/admin/edit-game.tsx:829:  const isCancelled = status === "cancelled";
+src/app/admin/edit-game.tsx:831:  const isFull = status === "full" || spotsLeft <= 0;
+src/app/admin/edit-game.tsx:834:    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+src/app/admin/edit-game.tsx:838:        behavior={Platform.OS === "ios" ? "padding" : "height"}
+src/app/admin/edit-game.tsx:845:          keyboardShouldPersistTaps="handled"
+src/app/admin/edit-game.tsx:847:          keyboardDismissMode="none"
+src/app/admin/edit-game.tsx:854:            onPress={() => router.replace("/admin/manage-games")}
+src/app/admin/edit-game.tsx:997:            placeholder="Addis Ababa"
+src/app/admin/edit-game.tsx:1010:            autoCapitalize="none"
+src/app/admin/edit-game.tsx:1046:              <Text style={styles.timezoneText}>Addis Ababa</Text>
+src/app/admin/edit-game.tsx:1063:            autoCapitalize="none"
+src/app/admin/edit-game.tsx:1133:            placeholder="Intermediate"
+src/app/admin/edit-game.tsx:1156:              selected={paymentMethod === "free"}
+src/app/admin/edit-game.tsx:1161:                setPaymentMethod("free");
+src/app/admin/edit-game.tsx:1174:              selected={paymentMethod === "venue"}
+src/app/admin/edit-game.tsx:1179:                setPaymentMethod("venue");
+src/app/admin/edit-game.tsx:1192:              selected={paymentMethod === "organizer"}
+src/app/admin/edit-game.tsx:1197:                setPaymentMethod("organizer");
+src/app/admin/edit-game.tsx:1204:          {paymentMethod !== "free" && (
+src/app/admin/edit-game.tsx:1219:                keyboardType="numeric"
+src/app/admin/edit-game.tsx:1226:          {paymentMethod === "organizer" && (
+src/app/admin/edit-game.tsx:1245:                placeholder="Telebirr"
+src/app/admin/edit-game.tsx:1301:            autoCapitalize="none"
+src/app/admin/edit-game.tsx:1396:          paymentMethod === "organizer"
+src/app/admin/edit-game.tsx:1439:    year: "numeric",
+src/app/admin/edit-game.tsx:1467:    hour: "numeric",
+src/app/admin/edit-game.tsx:1584:  onPress: () => void;
+src/app/admin/edit-game.tsx:1663:    alignItems: "center",
+src/app/admin/edit-game.tsx:1664:    justifyContent: "center",
+src/app/admin/edit-game.tsx:1677:    alignItems: "center",
+src/app/admin/edit-game.tsx:1679:    justifyContent: "center",
+src/app/admin/edit-game.tsx:1709:    flexDirection: "row",
+src/app/admin/edit-game.tsx:1710:    alignItems: "center",
+src/app/admin/edit-game.tsx:1738:    flexDirection: "row",
+src/app/admin/edit-game.tsx:1739:    alignItems: "center",
+src/app/admin/edit-game.tsx:1767:    flexDirection: "row",
+src/app/admin/edit-game.tsx:1768:    alignItems: "center",
+src/app/admin/edit-game.tsx:1777:    alignItems: "center",
+src/app/admin/edit-game.tsx:1778:    justifyContent: "center",
+src/app/admin/edit-game.tsx:1867:    flexDirection: "row",
+src/app/admin/edit-game.tsx:1869:    alignItems: "center",
+src/app/admin/edit-game.tsx:1889:    flexDirection: "row",
+src/app/admin/edit-game.tsx:1890:    alignItems: "center",
+src/app/admin/edit-game.tsx:1905:    flexDirection: "row",
+src/app/admin/edit-game.tsx:1944:    flexDirection: "row",
+src/app/admin/edit-game.tsx:1945:    alignItems: "center",
+src/app/admin/edit-game.tsx:1959:    alignItems: "center",
+src/app/admin/edit-game.tsx:1960:    justifyContent: "center",
+src/app/admin/edit-game.tsx:2014:    flexDirection: "row",
+src/app/admin/edit-game.tsx:2016:    alignItems: "center",
+src/app/admin/edit-game.tsx:2018:    justifyContent: "center",
+src/app/admin/edit-game.tsx:2037:    flexDirection: "row",
+src/app/admin/edit-game.tsx:2038:    alignItems: "center",
+src/app/admin/edit-game.tsx:2039:    justifyContent: "center",
+src/app/admin/edit-game.tsx:2057:    textAlign: "center",
+src/app/admin/edit-game.tsx:2076:    flexDirection: "row",
+src/app/admin/edit-game.tsx:2078:    alignItems: "center",
+src/app/admin/edit-game.tsx:2080:    justifyContent: "center",
+src/app/admin/payment-requests.tsx:5:import { useCallback, useEffect, useState } from "react";
+src/app/admin/payment-requests.tsx:83:                .from("profiles")
+src/app/admin/payment-requests.tsx:85:                .select("role")
+src/app/admin/payment-requests.tsx:95:            const role = profile?.role || "player";
+src/app/admin/payment-requests.tsx:97:            if (role !== "admin" && role !== "organizer") {
+src/app/admin/payment-requests.tsx:110:                .from("payments")
+src/app/admin/payment-requests.tsx:126:                .eq("status", "submitted")
+src/app/admin/payment-requests.tsx:144:                        .map((payment) => payment.game_id)
+src/app/admin/payment-requests.tsx:146:                        .filter((id): id is number => typeof id === "number"),
+src/app/admin/payment-requests.tsx:154:                        .map((payment) => payment.user_id)
+src/app/admin/payment-requests.tsx:156:                        .filter((id): id is string => Boolean(id)),
+src/app/admin/payment-requests.tsx:162:                .from("games")
+src/app/admin/payment-requests.tsx:174:                .from("profiles")
+src/app/admin/payment-requests.tsx:197:                if (game?.payment_method !== "organizer") {
+src/app/admin/payment-requests.tsx:201:                if (role === "admin") {
+src/app/admin/payment-requests.tsx:303:                current.filter((item) => item.id !== request.id),
+src/app/admin/payment-requests.tsx:308:            if (Platform.OS === "web") {
+src/app/admin/payment-requests.tsx:340:            <SafeAreaView style={styles.safeArea} edges={["top"]}>
+src/app/admin/payment-requests.tsx:342:                    <ActivityIndicator size="large" color={COLORS.primary} />
+src/app/admin/payment-requests.tsx:353:        <SafeAreaView style={styles.safeArea} edges={["top"]}>
+src/app/admin/payment-requests.tsx:357:                    onPress={() => router.replace("/(tabs)/profile")}
+src/app/admin/payment-requests.tsx:359:                    accessibilityRole="button"
+src/app/admin/payment-requests.tsx:536:                                    onPress={() => handleMarkPaid(request)}
+src/app/admin/payment-requests.tsx:588:        flexDirection: "row",
+src/app/admin/payment-requests.tsx:589:        alignItems: "center",
+src/app/admin/payment-requests.tsx:625:        alignItems: "center",
+src/app/admin/payment-requests.tsx:627:        justifyContent: "center",
+src/app/admin/payment-requests.tsx:641:        alignItems: "center",
+src/app/admin/payment-requests.tsx:659:        alignItems: "center",
+src/app/admin/payment-requests.tsx:661:        justifyContent: "center",
+src/app/admin/payment-requests.tsx:681:        textAlign: "center",
+src/app/admin/payment-requests.tsx:701:        flexDirection: "row",
+src/app/admin/payment-requests.tsx:703:        alignItems: "center",
+src/app/admin/payment-requests.tsx:715:        alignItems: "center",
+src/app/admin/payment-requests.tsx:717:        justifyContent: "center",
+src/app/admin/payment-requests.tsx:773:        flexDirection: "row",
+src/app/admin/payment-requests.tsx:775:        alignItems: "center",
+src/app/admin/payment-requests.tsx:799:        textAlign: "right",
+src/app/admin/payment-requests.tsx:815:        flexDirection: "row",
+src/app/admin/payment-requests.tsx:817:        alignItems: "center",
+src/app/admin/payment-requests.tsx:839:        flexDirection: "row",
+src/app/admin/payment-requests.tsx:875:        alignItems: "center",
+src/app/admin/payment-requests.tsx:877:        justifyContent: "center",
+src/app/admin/payment-requests.tsx:879:        flexDirection: "row",
+src/app/admin/create-game.tsx:3:import { useState } from "react";
+src/app/admin/create-game.tsx:25:type PaymentMethod = "free" | "venue" | "organizer";
+src/app/admin/create-game.tsx:33:  const [organizer, setOrganizer] = useState("Addis Football");
+src/app/admin/create-game.tsx:37:  const [city, setCity] = useState("Addis Ababa");
+src/app/admin/create-game.tsx:51:  const [skill, setSkill] = useState("Intermediate");
+src/app/admin/create-game.tsx:62:    useState<PaymentMethod>("organizer");
+src/app/admin/create-game.tsx:64:  const [paymentProvider, setPaymentProvider] = useState("Telebirr");
+src/app/admin/create-game.tsx:73:    if (Platform.OS === "web" && typeof window !== "undefined") {
+src/app/admin/create-game.tsx:85:    if (method === "free") {
+src/app/admin/create-game.tsx:89:    if (method !== "free" && price === "0") {
+src/app/admin/create-game.tsx:190:    if (paymentMethod !== "free" && !price.trim()) {
+src/app/admin/create-game.tsx:200:    if (paymentMethod === "organizer") {
+src/app/admin/create-game.tsx:232:    const numericPrice = paymentMethod === "free" ? 0 : Number(price);
+src/app/admin/create-game.tsx:246:    if (paymentMethod !== "free" && numericPrice <= 0) {
+src/app/admin/create-game.tsx:348:            paymentMethod === "organizer" ? paymentProvider.trim() : null,
+src/app/admin/create-game.tsx:351:            paymentMethod === "organizer" ? paymentPhone.trim() : null,
+src/app/admin/create-game.tsx:354:            paymentMethod === "organizer" ? paymentAccountName.trim() : null,
+src/app/admin/create-game.tsx:392:      edges={["top", "bottom"]}
+src/app/admin/create-game.tsx:397:        behavior={Platform.OS === "ios" ? "padding" : "height"}
+src/app/admin/create-game.tsx:402:          keyboardShouldPersistTaps="handled"
+src/app/admin/create-game.tsx:404:          keyboardDismissMode="none"
+src/app/admin/create-game.tsx:411:            onPress={() => router.replace("/admin/manage-games")}
+src/app/admin/create-game.tsx:427:            placeholder="Bole Friday Night Football"
+src/app/admin/create-game.tsx:437:            placeholder="Addis Football"
+src/app/admin/create-game.tsx:454:            placeholder="Addis Ababa"
+src/app/admin/create-game.tsx:461:            autoCapitalize="none"
+src/app/admin/create-game.tsx:480:              <Text style={styles.timezoneBadge}>Addis Ababa</Text>
+src/app/admin/create-game.tsx:496:              autoCapitalize="none"
+src/app/admin/create-game.tsx:510:                  autoCapitalize="characters"
+src/app/admin/create-game.tsx:524:                  autoCapitalize="characters"
+src/app/admin/create-game.tsx:547:            placeholder="Intermediate"
+src/app/admin/create-game.tsx:564:              selected={paymentMethod === "free"}
+src/app/admin/create-game.tsx:566:              onPress={() => selectPaymentMethod("free")}
+src/app/admin/create-game.tsx:574:              selected={paymentMethod === "venue"}
+src/app/admin/create-game.tsx:576:              onPress={() => selectPaymentMethod("venue")}
+src/app/admin/create-game.tsx:584:              selected={paymentMethod === "organizer"}
+src/app/admin/create-game.tsx:586:              onPress={() => selectPaymentMethod("organizer")}
+src/app/admin/create-game.tsx:590:          {paymentMethod !== "free" && (
+src/app/admin/create-game.tsx:604:          {paymentMethod === "organizer" && (
+src/app/admin/create-game.tsx:621:                placeholder="Telebirr"
+src/app/admin/create-game.tsx:643:                placeholder="Abebe Kebede"
+src/app/admin/create-game.tsx:669:            autoCapitalize="none"
+src/app/admin/create-game.tsx:704:  onChangeText: (value: string) => void;
+src/app/admin/create-game.tsx:708:  keyboardType?: "default" | "number-pad" | "phone-pad";
+src/app/admin/create-game.tsx:710:  autoCapitalize?: "none" | "sentences" | "words" | "characters";
+src/app/admin/create-game.tsx:722:  keyboardType = "default",
+src/app/admin/create-game.tsx:724:  autoCapitalize = "sentences",
+src/app/admin/create-game.tsx:756:  onPress: () => void;
+src/app/admin/create-game.tsx:846:    flexDirection: "row",
+src/app/admin/create-game.tsx:848:    alignItems: "center",
+src/app/admin/create-game.tsx:880:    flexDirection: "row",
+src/app/admin/create-game.tsx:931:    flexDirection: "row",
+src/app/admin/create-game.tsx:932:    alignItems: "center",
+src/app/admin/create-game.tsx:952:    alignItems: "center",
+src/app/admin/create-game.tsx:953:    justifyContent: "center",
+src/app/admin/create-game.tsx:1016:    alignItems: "center",
+src/app/admin/create-game.tsx:1017:    justifyContent: "center",
+src/app/game/[id].tsx:3:import { useEffect, useState } from "react";
+src/app/game/[id].tsx:62:            .from("games")
+src/app/game/[id].tsx:112:            weekday: "long",
+src/app/game/[id].tsx:113:            month: "long",
+src/app/game/[id].tsx:114:            day: "numeric",
+src/app/game/[id].tsx:123:            hour: "numeric",
+src/app/game/[id].tsx:193:                    <ActivityIndicator size="large" color={COLORS.primary} />
+src/app/game/[id].tsx:244:    const isFull = game.status === "full" || Number(game.spots_left ?? 0) <= 0;
+src/app/game/[id].tsx:249:        <SafeAreaView style={styles.safeArea} edges={["top"]}>
+src/app/game/[id].tsx:449:                                : game.payment_method === "venue"
+src/app/game/[id].tsx:451:                                  : game.payment_method === "organizer"
+src/app/game/[id].tsx:483:                                        ? "full"
+src/app/game/[id].tsx:484:                                        : currentGame.status === "full"
+src/app/game/[id].tsx:485:                                          ? "available"
+src/app/game/[id].tsx:539:        alignItems: "center",
+src/app/game/[id].tsx:540:        justifyContent: "center",
+src/app/game/[id].tsx:550:        alignItems: "center",
+src/app/game/[id].tsx:551:        justifyContent: "center",
+src/app/game/[id].tsx:560:        alignItems: "center",
+src/app/game/[id].tsx:561:        justifyContent: "center",
+src/app/game/[id].tsx:575:        textAlign: "center",
+src/app/game/[id].tsx:581:        justifyContent: "center",
+src/app/game/[id].tsx:589:        flexDirection: "row",
+src/app/game/[id].tsx:590:        alignItems: "center",
+src/app/game/[id].tsx:608:        alignSelf: "center",
+src/app/game/[id].tsx:618:        flexDirection: "row",
+src/app/game/[id].tsx:646:        alignItems: "center",
+src/app/game/[id].tsx:647:        justifyContent: "center",
+src/app/game/[id].tsx:693:        flexDirection: "row",
+src/app/game/[id].tsx:694:        alignItems: "center",
+src/app/game/[id].tsx:703:        alignItems: "center",
+src/app/game/[id].tsx:704:        justifyContent: "center",
+src/app/game/[id].tsx:728:        flexDirection: "row",
+src/app/game/[id].tsx:729:        alignItems: "center",
+src/app/game/[id].tsx:738:        alignItems: "center",
+src/app/game/[id].tsx:739:        justifyContent: "center",
+src/app/game/[id].tsx:772:        flexDirection: "row",
+src/app/game/[id].tsx:773:        alignItems: "center",
+src/app/_layout.tsx:9:      <StatusBar style="light" />
+src/app/_layout.tsx:19:        <Stack.Screen name="index" />
+src/app/explore.tsx:42:          <ThemedText type="subtitle">Explore</ThemedText>
+src/app/explore.tsx:43:          <ThemedText style={styles.centerText} themeColor="textSecondary">
+src/app/explore.tsx:48:            <Pressable style={({ pressed }) => pressed && styles.pressed}>
+src/app/explore.tsx:49:              <ThemedView type="backgroundElement" style={styles.linkButton}>
+src/app/explore.tsx:50:                <ThemedText type="link">Expo documentation</ThemedText>
+src/app/explore.tsx:63:            <ThemedText type="small">
+src/app/explore.tsx:64:              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
+src/app/explore.tsx:65:              <ThemedText type="code">src/app/explore.tsx</ThemedText>
+src/app/explore.tsx:67:            <ThemedText type="small">
+src/app/explore.tsx:68:              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
+src/app/explore.tsx:72:              <ThemedText type="linkPrimary">Learn more</ThemedText>
+src/app/explore.tsx:77:            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
+src/app/explore.tsx:78:              <ThemedText type="small">
+src/app/explore.tsx:80:                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
+src/app/explore.tsx:90:          <Collapsible title="Images">
+src/app/explore.tsx:91:            <ThemedText type="small">
+src/app/explore.tsx:92:              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
+src/app/explore.tsx:93:              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
+src/app/explore.tsx:98:              <ThemedText type="linkPrimary">Learn more</ThemedText>
+src/app/explore.tsx:102:          <Collapsible title="Light and dark mode components">
+src/app/explore.tsx:103:            <ThemedText type="small">
+src/app/explore.tsx:105:              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
+src/app/explore.tsx:109:              <ThemedText type="linkPrimary">Learn more</ThemedText>
+src/app/explore.tsx:113:          <Collapsible title="Animations">
+src/app/explore.tsx:114:            <ThemedText type="small">
+src/app/explore.tsx:116:              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
+src/app/explore.tsx:117:              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
+src/app/(auth)/login.tsx:5:import { useState } from "react";
+src/app/(auth)/login.tsx:32:    if (Platform.OS === "web") {
+src/app/(auth)/login.tsx:49:      if (Platform.OS === "web") {
+src/app/(auth)/login.tsx:53:          provider: "google",
+src/app/(auth)/login.tsx:79:          scheme: "addisfootball",
+src/app/(auth)/login.tsx:85:          provider: "google",
+src/app/(auth)/login.tsx:122:        result.type !== "success" ||
+src/app/(auth)/login.tsx:135:        "string"
+src/app/(auth)/login.tsx:251:      edges={["top", "bottom"]}
+src/app/(auth)/login.tsx:260:            accessibilityRole="button"
+src/app/(auth)/login.tsx:261:            accessibilityLabel="English"
+src/app/(auth)/login.tsx:283:            accessibilityRole="button"
+src/app/(auth)/login.tsx:306:            accessibilityRole="button"
+src/app/(auth)/login.tsx:307:            accessibilityLabel="Oromoo"
+src/app/(auth)/login.tsx:335:                name="football"
+src/app/(auth)/login.tsx:356:              accessibilityRole="button"
+src/app/(auth)/login.tsx:378:                    size="small"
+src/app/(auth)/login.tsx:451:    position: "absolute",
+src/app/(auth)/login.tsx:457:    flexDirection: "row",
+src/app/(auth)/login.tsx:458:    alignItems: "center",
+src/app/(auth)/login.tsx:459:    justifyContent: "center",
+src/app/(auth)/login.tsx:471:    alignItems: "center",
+src/app/(auth)/login.tsx:472:    justifyContent: "center",
+src/app/(auth)/login.tsx:475:    borderColor: "transparent",
+src/app/(auth)/login.tsx:498:    alignSelf: "center",
+src/app/(auth)/login.tsx:499:    justifyContent: "center",
+src/app/(auth)/login.tsx:503:    alignItems: "center",
+src/app/(auth)/login.tsx:512:    alignItems: "center",
+src/app/(auth)/login.tsx:513:    justifyContent: "center",
+src/app/(auth)/login.tsx:532:    textAlign: "center",
+src/app/(auth)/login.tsx:541:    textAlign: "center",
+src/app/(auth)/login.tsx:561:    flexDirection: "row",
+src/app/(auth)/login.tsx:562:    alignItems: "center",
+src/app/(auth)/login.tsx:563:    justifyContent: "center",
+src/app/(auth)/login.tsx:592:    position: "absolute",
+src/app/(auth)/login.tsx:598:    alignItems: "center",
+src/app/(auth)/login.tsx:599:    justifyContent: "center",
+src/app/(auth)/login.tsx:623:    textAlign: "center",
+src/app/(auth)/login.tsx:635:    textAlign: "center",
+src/constants/theme.ts:92:    sans: "normal",
+src/constants/theme.ts:93:    serif: "serif",
+src/constants/theme.ts:94:    rounded: "normal",
+src/constants/theme.ts:95:    mono: "monospace",
+src/components/ui/collapsible.tsx:19:        onPress={() => setIsOpen((value) => !value)}>
+src/components/ui/collapsible.tsx:20:        <ThemedView type="backgroundElement" style={styles.button}>
+src/components/ui/collapsible.tsx:24:            weight="bold"
+src/components/ui/collapsible.tsx:30:        <ThemedText type="small">{title}</ThemedText>
+src/components/ui/collapsible.tsx:34:          <ThemedView type="backgroundElement" style={styles.content}>
+src/components/GameBookingAction.tsx:2:import { useEffect, useState } from "react";
+src/components/GameBookingAction.tsx:19:  | "confirmed"
+src/components/GameBookingAction.tsx:20:  | "waitlisted"
+src/components/GameBookingAction.tsx:25:  | "free"
+src/components/GameBookingAction.tsx:26:  | "venue"
+src/components/GameBookingAction.tsx:27:  | "organizer";
+src/components/GameBookingAction.tsx:42:  onSpotsChange?: (spotsLeft: number) => void;
+src/components/GameBookingAction.tsx:106:        ? "organizer"
+src/components/GameBookingAction.tsx:107:        : "free",
+src/components/GameBookingAction.tsx:121:    status === "full" ||
+src/components/GameBookingAction.tsx:125:    bookingStatus === "confirmed";
+src/components/GameBookingAction.tsx:128:    bookingStatus === "waitlisted";
+src/components/GameBookingAction.tsx:135:    paymentStatus === "submitted";
+src/components/GameBookingAction.tsx:139:    "organizer";
+src/components/GameBookingAction.tsx:161:      .from("games")
+src/components/GameBookingAction.tsx:180:            ? "organizer"
+src/components/GameBookingAction.tsx:181:            : "free"),
+src/components/GameBookingAction.tsx:198:        "number"
+src/components/GameBookingAction.tsx:225:      .from("bookings")
+src/components/GameBookingAction.tsx:239:      .in("status", [
+src/components/GameBookingAction.tsx:240:        "confirmed",
+src/components/GameBookingAction.tsx:241:        "waitlisted",
+src/components/GameBookingAction.tsx:292:        "pending"
+src/components/GameBookingAction.tsx:316:      booking.status === "confirmed"
+src/components/GameBookingAction.tsx:318:      setBookingStatus("confirmed");
+src/components/GameBookingAction.tsx:320:      booking.status === "waitlisted"
+src/components/GameBookingAction.tsx:322:      setBookingStatus("waitlisted");
+src/components/GameBookingAction.tsx:400:        () => loadState(),
+src/components/GameBookingAction.tsx:489:        "free" ||
+src/components/GameBookingAction.tsx:491:        "venue" ||
+src/components/GameBookingAction.tsx:547:            .includes("already joined")
+src/components/GameBookingAction.tsx:571:        "confirmed"
+src/components/GameBookingAction.tsx:574:          "confirmed",
+src/components/GameBookingAction.tsx:578:        "waitlisted"
+src/components/GameBookingAction.tsx:581:          "waitlisted",
+src/components/GameBookingAction.tsx:594:        "number"
+src/components/GameBookingAction.tsx:661:          "pending",
+src/components/GameBookingAction.tsx:666:        "number"
+src/components/GameBookingAction.tsx:758:            .includes("expired")
+src/components/GameBookingAction.tsx:788:          "submitted",
+src/components/GameBookingAction.tsx:873:      "venue"
+src/components/GameBookingAction.tsx:1051:        animationType="slide"
+src/components/GameBookingAction.tsx:1115:                    "Telebirr"}
+src/components/GameBookingAction.tsx:1284:    flexDirection: "row",
+src/components/GameBookingAction.tsx:1285:    alignItems: "center",
+src/components/GameBookingAction.tsx:1298:    flexDirection: "column",
+src/components/GameBookingAction.tsx:1299:    alignItems: "stretch",
+src/components/GameBookingAction.tsx:1330:    flexDirection: "row",
+src/components/GameBookingAction.tsx:1331:    alignItems: "center",
+src/components/GameBookingAction.tsx:1332:    justifyContent: "center",
+src/components/GameBookingAction.tsx:1345:    textAlign: "center",
+src/components/GameBookingAction.tsx:1363:    flexDirection: "row",
+src/components/GameBookingAction.tsx:1391:    flexDirection: "row",
+src/components/GameBookingAction.tsx:1392:    alignItems: "center",
+src/components/GameBookingAction.tsx:1439:    alignSelf: "center",
+src/components/GameBookingAction.tsx:1447:    textAlign: "center",
+src/components/GameBookingAction.tsx:1454:    textAlign: "center",
+src/components/GameBookingAction.tsx:1468:    flexDirection: "row",
+src/components/GameBookingAction.tsx:1469:    alignItems: "center",
+src/components/GameBookingAction.tsx:1479:    alignItems: "center",
+src/components/GameBookingAction.tsx:1480:    justifyContent: "center",
+src/components/GameBookingAction.tsx:1490:    flexDirection: "row",
+src/components/GameBookingAction.tsx:1491:    alignItems: "center",
+src/components/GameBookingAction.tsx:1510:    flexDirection: "row",
+src/components/GameBookingAction.tsx:1511:    alignItems: "center",
+src/components/GameBookingAction.tsx:1512:    justifyContent: "center",
+src/components/GameBookingAction.tsx:1530:    flexDirection: "row",
+src/components/GameBookingAction.tsx:1548:    alignItems: "center",
+src/components/GameBookingAction.tsx:1549:    justifyContent: "center",
+src/components/GameBookingAction.tsx:1560:    alignItems: "center",
+src/components/GameBookingAction.tsx:1561:    justifyContent: "center",
+src/components/ConfirmModal.tsx:23:  onConfirm: () => void;
+src/components/ConfirmModal.tsx:24:  onCancel: () => void;
+src/components/ConfirmModal.tsx:31:  confirmText = "Confirm",
+src/components/ConfirmModal.tsx:32:  cancelText = "Cancel",
+src/components/ConfirmModal.tsx:44:      animationType="fade"
+src/components/ConfirmModal.tsx:118:                    : "checkmark"
+src/components/ConfirmModal.tsx:150:    alignItems: "center",
+src/components/ConfirmModal.tsx:151:    justifyContent: "center",
+src/components/ConfirmModal.tsx:179:    alignItems: "center",
+src/components/ConfirmModal.tsx:180:    justifyContent: "center",
+src/components/ConfirmModal.tsx:207:    flexDirection: "row",
+src/components/ConfirmModal.tsx:216:    alignItems: "center",
+src/components/ConfirmModal.tsx:217:    justifyContent: "center",
+src/components/ConfirmModal.tsx:218:    flexDirection: "row",
+src/components/hint-row.tsx:17:      <ThemedText type="small">{title}</ThemedText>
+src/components/hint-row.tsx:18:      <ThemedView type="backgroundSelected" style={styles.codeSnippet}>
+src/components/hint-row.tsx:19:        <ThemedText themeColor="textSecondary">{hint}</ThemedText>
+src/components/app-tabs.web.tsx:24:          <TabTrigger name="home" href="/" asChild>
+src/components/app-tabs.web.tsx:25:            <TabButton>Home</TabButton>
+src/components/app-tabs.web.tsx:27:          <TabTrigger name="explore" href="/explore" asChild>
+src/components/app-tabs.web.tsx:28:            <TabButton>Explore</TabButton>
+src/components/app-tabs.web.tsx:38:    <Pressable {...props} style={({ pressed }) => pressed && styles.pressed}>
+src/components/app-tabs.web.tsx:42:        <ThemedText type="small" themeColor={isFocused ? 'text' : 'textSecondary'}>
+src/components/app-tabs.web.tsx:56:      <ThemedView type="backgroundElement" style={styles.innerContainer}>
+src/components/app-tabs.web.tsx:57:        <ThemedText type="smallBold" style={styles.brandText}>
+src/components/app-tabs.web.tsx:65:            <ThemedText type="link">Docs</ThemedText>
+src/components/web-badge.tsx:15:      <ThemedText type="code" themeColor="textSecondary" style={styles.versionText}>
+src/components/app-tabs.tsx:15:      <NativeTabs.Trigger name="index">
+src/components/app-tabs.tsx:16:        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+src/components/app-tabs.tsx:19:          renderingMode="template"
+src/components/app-tabs.tsx:23:      <NativeTabs.Trigger name="explore">
+src/components/app-tabs.tsx:24:        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
+src/components/app-tabs.tsx:27:          renderingMode="template"
+src/components/GameCard.tsx:3:import { useEffect, useState } from "react";
+src/components/GameCard.tsx:30:    game.status === "full" || spotsLeft <= 0;
+src/components/GameCard.tsx:63:        .from("favorites")
+src/components/GameCard.tsx:126:          .from("favorites")
+src/components/GameCard.tsx:136:          .from("favorites")
+src/components/GameCard.tsx:168:          accessibilityRole="button"
+src/components/GameCard.tsx:204:          accessibilityRole="button"
+src/components/GameCard.tsx:224:                ? "heart"
+src/components/GameCard.tsx:244:        accessibilityRole="button"
+src/components/GameCard.tsx:315:    flexDirection: "row",
+src/components/GameCard.tsx:343:    alignItems: "center",
+src/components/GameCard.tsx:344:    justifyContent: "center",
+src/components/GameCard.tsx:353:    flexDirection: "row",
+src/components/GameCard.tsx:354:    alignItems: "center",
+src/components/GameCard.tsx:371:    flexDirection: "row",
+src/components/GameCard.tsx:372:    alignItems: "center",
+src/components/GameCard.tsx:379:    flexDirection: "row",
+src/components/GameCard.tsx:380:    alignItems: "center",
+src/components/GameCard.tsx:402:    flexDirection: "row",
+src/components/GameCard.tsx:403:    alignItems: "center",
+src/components/GameCard.tsx:417:    flexDirection: "row",
+src/components/GameCard.tsx:418:    alignItems: "center",
+src/components/GameCard.tsx:419:    justifyContent: "center",
+src/i18n/index.ts:16:    label: "English",
+src/i18n/index.ts:24:    label: "Afaan Oromoo",
+src/i18n/index.ts:47:    typeof value === "string"
+src/i18n/index.ts:65:  return typeof fallback === "string"
+src/i18n/LanguageContext.tsx:8:} from "react";
+src/i18n/LanguageContext.tsx:16:  setLanguage: (language: Language) => Promise<void>;
+src/i18n/LanguageContext.tsx:17:  t: (key: string) => string;
+src/i18n/LanguageContext.tsx:78:    throw new Error("useLanguage must be used inside LanguageProvider");
+src/data/games.ts:6:    title: "Bole Evening Football",
+src/data/games.ts:7:    organizer: "Addis Football",
+src/data/games.ts:12:    skill: "Intermediate",
+src/data/games.ts:15:    status: "available",
+src/data/games.ts:21:    title: "CMC Night Football",
+src/data/games.ts:22:    organizer: "Addis Football",
+src/data/games.ts:30:    status: "full",
