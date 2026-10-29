@@ -1875,7 +1875,7 @@ export default function CommunitiesScreen() {
                                                                 source={{
                                                                     uri: image,
                                                                 }}
-                                                                resizeMode="cover"
+                                                                resizeMode="contain"
                                                                 onLoad={(
                                                                     event,
                                                                 ) => {
