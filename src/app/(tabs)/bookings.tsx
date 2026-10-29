@@ -310,14 +310,17 @@ const BookingCard = memo(function BookingCard({
                 cancelled && styles.cancelledImage,
               ]}
             >
-              <View style={styles.fallbackLine} />
-              <View style={styles.fallbackCircle} />
+              <View style={styles.pitchHalfwayLine} />
+              <View style={styles.pitchCenterCircle} />
 
               <Ionicons
                 name="football-outline"
-                size={30}
-                color="rgba(255,255,255,0.24)"
+                size={38}
+                color="rgba(255,255,255,0.16)"
+                style={styles.pitchBall}
               />
+
+              <View style={styles.pitchAccent} />
             </View>
           )}
         </View>
@@ -2237,15 +2240,16 @@ const styles = StyleSheet.create({
 
   cardMainRow: {
     flexDirection: "row",
-    padding: 12,
+    alignItems: "stretch",
+    minHeight: 156,
   },
-
   thumbnail: {
-    width: 96,
-    height: 96,
-    borderRadius: 14,
+    width: "31%",
+    minWidth: 112,
+    alignSelf: "stretch",
     overflow: "hidden",
-    backgroundColor: "#12333A",
+    backgroundColor: "#123E3F",
+    position: "relative",
   },
 
   thumbnailImage: {
@@ -2255,10 +2259,46 @@ const styles = StyleSheet.create({
 
   thumbnailFallback: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#12333A",
+    backgroundColor: "#123E3F",
     overflow: "hidden",
+    position: "relative",
+  },
+
+  pitchHalfwayLine: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: "50%",
+    width: 1,
+    backgroundColor: "rgba(255,255,255,0.12)",
+  },
+
+  pitchCenterCircle: {
+    position: "absolute",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    left: "50%",
+    top: "50%",
+    transform: [{ translateX: -36 }, { translateY: -36 }],
+  },
+
+  pitchBall: {
+    position: "absolute",
+    left: 14,
+    top: 20,
+  },
+
+  pitchAccent: {
+    position: "absolute",
+    left: 14,
+    bottom: 16,
+    width: 34,
+    height: 4,
+    borderRadius: 3,
+    backgroundColor: COLORS.primary,
   },
 
   fallbackLine: {
@@ -2286,7 +2326,8 @@ const styles = StyleSheet.create({
   cardContent: {
     flex: 1,
     minWidth: 0,
-    paddingLeft: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
   },
 
   cardTitleRow: {

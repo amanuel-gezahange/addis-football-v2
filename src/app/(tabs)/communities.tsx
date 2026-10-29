@@ -165,8 +165,9 @@ function getPostTime(createdAt: string) {
 }
 
 export default function CommunitiesScreen() {
-    const [activeSection, setActiveSection] =
-        useState<CommunitySection>(() => communityActiveSectionCache);
+    const [activeSection, setActiveSection] = useState<CommunitySection>(
+        () => communityActiveSectionCache,
+    );
 
     const [groups, setGroups] = useState<FootballGroup[]>(
         () => communityGroupsCache ?? [],
@@ -388,7 +389,8 @@ export default function CommunitiesScreen() {
                                     avatar_url: profile.avatar_url ?? null,
                                 };
                                 profileCacheRef.current[userId] = cachedValue;
-                                communityPublicProfilesCache[userId] = cachedValue;
+                                communityPublicProfilesCache[userId] =
+                                    cachedValue;
                             }
 
                             return [userId, profile] as const;
@@ -661,41 +663,44 @@ export default function CommunitiesScreen() {
         [getCachedPublicProfile],
     );
 
-    const loadGroups = useCallback(async (showLoading = false) => {
-        if (showLoading) {
-            setGroupsLoading(true);
-        }
-
-        setGroupsError(null);
-
-        try {
-            const { data, error } = await supabase
-                .from("community_groups")
-                .select("id,name,description,created_at")
-                .order("created_at", {
-                    ascending: true,
-                });
-
-            if (error) {
-                throw error;
+    const loadGroups = useCallback(
+        async (showLoading = false) => {
+            if (showLoading) {
+                setGroupsLoading(true);
             }
 
-            const rows = (data ?? []) as FootballGroup[];
+            setGroupsError(null);
 
-            communityGroupsCache = rows;
-            setGroups(rows);
-            void loadGroupPreviews(rows);
-        } catch (error) {
-            console.error("Failed to load community groups:", error);
-            setGroupsError(
-                error instanceof Error
-                    ? error.message
-                    : "We couldn't load football groups.",
-            );
-        } finally {
-            setGroupsLoading(false);
-        }
-    }, [loadGroupPreviews]);
+            try {
+                const { data, error } = await supabase
+                    .from("community_groups")
+                    .select("id,name,description,created_at")
+                    .order("created_at", {
+                        ascending: true,
+                    });
+
+                if (error) {
+                    throw error;
+                }
+
+                const rows = (data ?? []) as FootballGroup[];
+
+                communityGroupsCache = rows;
+                setGroups(rows);
+                void loadGroupPreviews(rows);
+            } catch (error) {
+                console.error("Failed to load community groups:", error);
+                setGroupsError(
+                    error instanceof Error
+                        ? error.message
+                        : "We couldn't load football groups.",
+                );
+            } finally {
+                setGroupsLoading(false);
+            }
+        },
+        [loadGroupPreviews],
+    );
 
     const loadGroupMemberships = useCallback(async () => {
         try {
@@ -1575,7 +1580,8 @@ export default function CommunitiesScreen() {
 
     const filteredGroups = normalizedGroupSearch
         ? groups.filter((group) => {
-              const searchableText = `${group.name} ${group.description}`.toLowerCase();
+              const searchableText =
+                  `${group.name} ${group.description}`.toLowerCase();
               return searchableText.includes(normalizedGroupSearch);
           })
         : groups;
@@ -1960,8 +1966,8 @@ export default function CommunitiesScreen() {
                                                     pressed && styles.pressed,
                                                 ]}
                                                 onPress={() =>
-                                                    toggleInlineComments(
-                                                        post.id,
+                                                    router.push(
+                                                        `/community/post/${post.id}`,
                                                     )
                                                 }
                                             >
@@ -2023,8 +2029,8 @@ export default function CommunitiesScreen() {
                                                         styles.actionButtonPressed,
                                                 ]}
                                                 onPress={() =>
-                                                    toggleInlineComments(
-                                                        post.id,
+                                                    router.push(
+                                                        `/community/post/${post.id}`,
                                                     )
                                                 }
                                             >
@@ -2039,546 +2045,7 @@ export default function CommunitiesScreen() {
                                             </Pressable>
                                         </View>
 
-                                        {expandedComments[post.id] && (
-                                            <View
-                                                style={
-                                                    styles.inlineCommentsSection
-                                                }
-                                            >
-                                                {commentsLoading[post.id] &&
-                                                !commentsByPost[post.id] ? (
-                                                    <View
-                                                        style={
-                                                            styles.inlineCommentsLoading
-                                                        }
-                                                    >
-                                                        <ActivityIndicator
-                                                            size="small"
-                                                            color={
-                                                                COLORS.primary
-                                                            }
-                                                        />
-                                                        <Text
-                                                            style={
-                                                                styles.inlineCommentsLoadingText
-                                                            }
-                                                        >
-                                                            Loading comments...
-                                                        </Text>
-                                                    </View>
-                                                ) : (
-                                                    <>
-                                                        {(() => {
-                                                            const allComments =
-                                                                commentsByPost[
-                                                                    post.id
-                                                                ] ?? [];
-                                                            const visibleCount =
-                                                                visibleCommentCounts[
-                                                                    post.id
-                                                                ] ?? 3;
-                                                            const visibleComments =
-                                                                allComments.slice(
-                                                                    Math.max(
-                                                                        0,
-                                                                        allComments.length -
-                                                                            visibleCount,
-                                                                    ),
-                                                                );
-                                                            const hiddenCount =
-                                                                allComments.length -
-                                                                visibleComments.length;
 
-                                                            return (
-                                                                <>
-                                                                    {hiddenCount >
-                                                                        0 && (
-                                                                        <Pressable
-                                                                            style={({
-                                                                                pressed,
-                                                                            }) => [
-                                                                                styles.viewMoreCommentsButton,
-                                                                                pressed &&
-                                                                                    styles.pressed,
-                                                                            ]}
-                                                                            onPress={() =>
-                                                                                showMoreComments(
-                                                                                    post.id,
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            <Text
-                                                                                style={
-                                                                                    styles.viewMoreCommentsText
-                                                                                }
-                                                                            >
-                                                                                View
-                                                                                more
-                                                                                comments
-                                                                            </Text>
-                                                                        </Pressable>
-                                                                    )}
-
-                                                                    {visibleComments.map(
-                                                                        (
-                                                                            comment,
-                                                                        ) => {
-                                                                            const isMine =
-                                                                                currentUserId ===
-                                                                                comment.userId;
-                                                                            const isEditing =
-                                                                                editingCommentId ===
-                                                                                comment.id;
-
-                                                                            return (
-                                                                                <View
-                                                                                    key={
-                                                                                        comment.id
-                                                                                    }
-                                                                                    style={
-                                                                                        styles.inlineCommentRow
-                                                                                    }
-                                                                                >
-                                                                                    {comment.avatar ? (
-                                                                                        <Image
-                                                                                            source={{
-                                                                                                uri: comment.avatar,
-                                                                                            }}
-                                                                                            style={
-                                                                                                styles.inlineCommentAvatar
-                                                                                            }
-                                                                                        />
-                                                                                    ) : (
-                                                                                        <View
-                                                                                            style={
-                                                                                                styles.inlineCommentAvatarFallback
-                                                                                            }
-                                                                                        >
-                                                                                            <Ionicons
-                                                                                                name="person"
-                                                                                                size={
-                                                                                                    14
-                                                                                                }
-                                                                                                color={
-                                                                                                    COLORS.primary
-                                                                                                }
-                                                                                            />
-                                                                                        </View>
-                                                                                    )}
-
-                                                                                    <View
-                                                                                        style={
-                                                                                            styles.inlineCommentBody
-                                                                                        }
-                                                                                    >
-                                                                                        <View
-                                                                                            style={
-                                                                                                styles.inlineCommentTopRow
-                                                                                            }
-                                                                                        >
-                                                                                            <View
-                                                                                                style={
-                                                                                                    styles.inlineCommentBubble
-                                                                                                }
-                                                                                            >
-                                                                                                <Text
-                                                                                                    style={
-                                                                                                        styles.inlineCommentAuthor
-                                                                                                    }
-                                                                                                >
-                                                                                                    {
-                                                                                                        comment.author
-                                                                                                    }
-                                                                                                </Text>
-
-                                                                                                {isEditing ? (
-                                                                                                    <TextInput
-                                                                                                        value={
-                                                                                                            editingCommentText
-                                                                                                        }
-                                                                                                        onChangeText={
-                                                                                                            setEditingCommentText
-                                                                                                        }
-                                                                                                        style={
-                                                                                                            styles.inlineEditInput
-                                                                                                        }
-                                                                                                        multiline
-                                                                                                        maxLength={
-                                                                                                            1000
-                                                                                                        }
-                                                                                                        autoFocus
-                                                                                                        returnKeyType="done"
-                                                                                                        blurOnSubmit
-                                                                                                        submitBehavior="blurAndSubmit"
-                                                                                                        onSubmitEditing={Keyboard.dismiss}
-                                                                                                    />
-                                                                                                ) : (
-                                                                                                    <Text
-                                                                                                        style={
-                                                                                                            styles.inlineCommentText
-                                                                                                        }
-                                                                                                    >
-                                                                                                        {
-                                                                                                            comment.text
-                                                                                                        }
-                                                                                                    </Text>
-                                                                                                )}
-                                                                                            </View>
-
-                                                                                            {isMine &&
-                                                                                                !isEditing && (
-                                                                                                    <View
-                                                                                                        style={
-                                                                                                            styles.commentMenuWrap
-                                                                                                        }
-                                                                                                    >
-                                                                                                        <Pressable
-                                                                                                            style={({
-                                                                                                                pressed,
-                                                                                                            }) => [
-                                                                                                                styles.commentMenuButton,
-                                                                                                                pressed &&
-                                                                                                                    styles.pressed,
-                                                                                                            ]}
-                                                                                                            onPress={() =>
-                                                                                                                setCommentMenuId(
-                                                                                                                    (
-                                                                                                                        current,
-                                                                                                                    ) =>
-                                                                                                                        current ===
-                                                                                                                        comment.id
-                                                                                                                            ? null
-                                                                                                                            : comment.id,
-                                                                                                                )
-                                                                                                            }
-                                                                                                        >
-                                                                                                            <Ionicons
-                                                                                                                name="ellipsis-horizontal"
-                                                                                                                size={
-                                                                                                                    17
-                                                                                                                }
-                                                                                                                color={
-                                                                                                                    COLORS.textMuted
-                                                                                                                }
-                                                                                                            />
-                                                                                                        </Pressable>
-
-                                                                                                        {commentMenuId ===
-                                                                                                            comment.id && (
-                                                                                                            <View
-                                                                                                                style={
-                                                                                                                    styles.commentMenu
-                                                                                                                }
-                                                                                                            >
-                                                                                                                <Pressable
-                                                                                                                    style={
-                                                                                                                        styles.commentMenuItem
-                                                                                                                    }
-                                                                                                                    onPress={() =>
-                                                                                                                        startEditingComment(
-                                                                                                                            comment,
-                                                                                                                        )
-                                                                                                                    }
-                                                                                                                >
-                                                                                                                    <Ionicons
-                                                                                                                        name="pencil-outline"
-                                                                                                                        size={
-                                                                                                                            16
-                                                                                                                        }
-                                                                                                                        color={
-                                                                                                                            COLORS.text
-                                                                                                                        }
-                                                                                                                    />
-                                                                                                                    <Text
-                                                                                                                        style={
-                                                                                                                            styles.commentMenuItemText
-                                                                                                                        }
-                                                                                                                    >
-                                                                                                                        Edit
-                                                                                                                        comment
-                                                                                                                    </Text>
-                                                                                                                </Pressable>
-
-                                                                                                                <Pressable
-                                                                                                                    style={
-                                                                                                                        styles.commentMenuItem
-                                                                                                                    }
-                                                                                                                    disabled={
-                                                                                                                        deletingCommentId ===
-                                                                                                                        comment.id
-                                                                                                                    }
-                                                                                                                    onPress={() =>
-                                                                                                                        confirmDeleteComment(
-                                                                                                                            post.id,
-                                                                                                                            comment.id,
-                                                                                                                        )
-                                                                                                                    }
-                                                                                                                >
-                                                                                                                    <Ionicons
-                                                                                                                        name="trash-outline"
-                                                                                                                        size={
-                                                                                                                            16
-                                                                                                                        }
-                                                                                                                        color={
-                                                                                                                            COLORS.danger
-                                                                                                                        }
-                                                                                                                    />
-                                                                                                                    <Text
-                                                                                                                        style={[
-                                                                                                                            styles.commentMenuItemText,
-                                                                                                                            styles.commentMenuDeleteText,
-                                                                                                                        ]}
-                                                                                                                    >
-                                                                                                                        Delete
-                                                                                                                        comment
-                                                                                                                    </Text>
-                                                                                                                </Pressable>
-                                                                                                            </View>
-                                                                                                        )}
-                                                                                                    </View>
-                                                                                                )}
-                                                                                        </View>
-
-                                                                                        {isEditing ? (
-                                                                                            <View
-                                                                                                style={
-                                                                                                    styles.inlineEditActions
-                                                                                                }
-                                                                                            >
-                                                                                                <Pressable
-                                                                                                    onPress={
-                                                                                                        cancelEditingComment
-                                                                                                    }
-                                                                                                >
-                                                                                                    <Text
-                                                                                                        style={
-                                                                                                            styles.inlineEditCancel
-                                                                                                        }
-                                                                                                    >
-                                                                                                        Cancel
-                                                                                                    </Text>
-                                                                                                </Pressable>
-                                                                                                <Pressable
-                                                                                                    disabled={
-                                                                                                        !editingCommentText.trim() ||
-                                                                                                        savingCommentId ===
-                                                                                                            comment.id
-                                                                                                    }
-                                                                                                    onPress={() => {
-                                                                                                        void saveEditedComment(
-                                                                                                            post.id,
-                                                                                                            comment.id,
-                                                                                                        );
-                                                                                                    }}
-                                                                                                >
-                                                                                                    <Text
-                                                                                                        style={
-                                                                                                            styles.inlineEditSave
-                                                                                                        }
-                                                                                                    >
-                                                                                                        {savingCommentId ===
-                                                                                                        comment.id
-                                                                                                            ? "Saving..."
-                                                                                                            : "Save"}
-                                                                                                    </Text>
-                                                                                                </Pressable>
-                                                                                            </View>
-                                                                                        ) : (
-                                                                                            <Text
-                                                                                                style={
-                                                                                                    styles.inlineCommentTime
-                                                                                                }
-                                                                                            >
-                                                                                                {
-                                                                                                    comment.time
-                                                                                                }
-                                                                                            </Text>
-                                                                                        )}
-                                                                                    </View>
-                                                                                </View>
-                                                                            );
-                                                                        },
-                                                                    )}
-                                                                </>
-                                                            );
-                                                        })()}
-
-                                                        {!commentsLoading[
-                                                            post.id
-                                                        ] &&
-                                                            (
-                                                                commentsByPost[
-                                                                    post.id
-                                                                ] ?? []
-                                                            ).length === 0 && (
-                                                                <Text
-                                                                    style={
-                                                                        styles.inlineNoComments
-                                                                    }
-                                                                >
-                                                                    No comments
-                                                                    yet. Be the
-                                                                    first.
-                                                                </Text>
-                                                            )}
-
-                                                        <View
-                                                            style={
-                                                                styles.inlineCommentComposer
-                                                            }
-                                                        >
-                                                            {currentUserProfile?.avatar_url ? (
-                                                                <Image
-                                                                    source={{
-                                                                        uri: currentUserProfile.avatar_url,
-                                                                    }}
-                                                                    style={
-                                                                        styles.inlineComposerAvatar
-                                                                    }
-                                                                />
-                                                            ) : (
-                                                                <View
-                                                                    style={
-                                                                        styles.inlineComposerAvatarFallback
-                                                                    }
-                                                                >
-                                                                    <Ionicons
-                                                                        name="person"
-                                                                        size={
-                                                                            14
-                                                                        }
-                                                                        color={
-                                                                            COLORS.primary
-                                                                        }
-                                                                    />
-                                                                </View>
-                                                            )}
-
-                                                            <View
-                                                                style={
-                                                                    styles.inlineCommentInputWrap
-                                                                }
-                                                            >
-                                                                <TextInput
-                                                                    ref={(
-                                                                        input,
-                                                                    ) => {
-                                                                        commentInputRefs.current[
-                                                                            post.id
-                                                                        ] =
-                                                                            input;
-                                                                    }}
-                                                                    value={
-                                                                        commentDrafts[
-                                                                            post
-                                                                                .id
-                                                                        ] ?? ""
-                                                                    }
-                                                                    onChangeText={(
-                                                                        value,
-                                                                    ) =>
-                                                                        setCommentDrafts(
-                                                                            (
-                                                                                current,
-                                                                            ) => ({
-                                                                                ...current,
-                                                                                [post.id]:
-                                                                                    value,
-                                                                            }),
-                                                                        )
-                                                                    }
-                                                                    placeholder="Write a comment..."
-                                                                    placeholderTextColor={
-                                                                        COLORS.textMuted
-                                                                    }
-                                                                    style={
-                                                                        styles.inlineCommentInput
-                                                                    }
-                                                                    multiline
-                                                                    maxLength={
-                                                                        1000
-                                                                    }
-                                                                    onFocus={() =>
-                                                                        focusCommentComposer(
-                                                                            post.id,
-                                                                        )
-                                                                    }
-                                                                    returnKeyType="send"
-                                                                    blurOnSubmit
-                                                                    submitBehavior="blurAndSubmit"
-                                                                    onSubmitEditing={() => {
-                                                                        const content = (commentDrafts[post.id] ?? "").trim();
-
-                                                                        if (content && !postingComments[post.id]) {
-                                                                            void submitInlineComment(post.id);
-                                                                        } else {
-                                                                            Keyboard.dismiss();
-                                                                        }
-                                                                    }}
-                                                                />
-
-                                                                <Pressable
-                                                                    style={({
-                                                                        pressed,
-                                                                    }) => [
-                                                                        styles.inlineSendButton,
-                                                                        !(
-                                                                            commentDrafts[
-                                                                                post
-                                                                                    .id
-                                                                            ] ??
-                                                                            ""
-                                                                        ).trim() &&
-                                                                            styles.inlineSendButtonDisabled,
-                                                                        pressed &&
-                                                                            styles.pressed,
-                                                                    ]}
-                                                                    disabled={
-                                                                        !(
-                                                                            commentDrafts[
-                                                                                post
-                                                                                    .id
-                                                                            ] ??
-                                                                            ""
-                                                                        ).trim() ||
-                                                                        postingComments[
-                                                                            post
-                                                                                .id
-                                                                        ]
-                                                                    }
-                                                                    onPress={() => {
-                                                                        void submitInlineComment(
-                                                                            post.id,
-                                                                        );
-                                                                    }}
-                                                                >
-                                                                    {postingComments[
-                                                                        post.id
-                                                                    ] ? (
-                                                                        <ActivityIndicator
-                                                                            size="small"
-                                                                            color={
-                                                                                COLORS.white
-                                                                            }
-                                                                        />
-                                                                    ) : (
-                                                                        <Ionicons
-                                                                            name="arrow-up"
-                                                                            size={
-                                                                                17
-                                                                            }
-                                                                            color={
-                                                                                COLORS.white
-                                                                            }
-                                                                        />
-                                                                    )}
-                                                                </Pressable>
-                                                            </View>
-                                                        </View>
-                                                    </>
-                                                )}
-                                            </View>
-                                        )}
                                     </View>
                                 );
                             })
@@ -2680,7 +2147,9 @@ export default function CommunitiesScreen() {
                                     }}
                                 >
                                     <Text
-                                        style={styles.clearGroupSearchButtonText}
+                                        style={
+                                            styles.clearGroupSearchButtonText
+                                        }
                                     >
                                         Try again
                                     </Text>
@@ -2688,430 +2157,510 @@ export default function CommunitiesScreen() {
                             </View>
                         ) : (
                             <>
-                        {yourGroups.length > 0 && (
-                            <View style={styles.groupCollection}>
-                                <Text style={styles.groupSectionTitle}>
-                                    Your Groups
-                                </Text>
+                                {yourGroups.length > 0 && (
+                                    <View style={styles.groupCollection}>
+                                        <Text style={styles.groupSectionTitle}>
+                                            Your Groups
+                                        </Text>
 
-                                <View style={styles.groupsList}>
-                                    {yourGroups.map((group) => {
-                                        const preview = groupPreviews[group.id];
-                                        const activity =
-                                            preview?.latestActivity;
-                                        const memberCount =
-                                            groupMemberCounts[group.id] ?? 0;
+                                        <View style={styles.groupsList}>
+                                            {yourGroups.map((group) => {
+                                                const preview =
+                                                    groupPreviews[group.id];
+                                                const activity =
+                                                    preview?.latestActivity;
+                                                const memberCount =
+                                                    groupMemberCounts[
+                                                        group.id
+                                                    ] ?? 0;
 
-                                        return (
-                                            <Pressable
-                                                key={group.id}
-                                                style={({ pressed }) => [
-                                                    styles.groupRow,
-                                                    pressed &&
-                                                        styles.groupRowPressed,
-                                                ]}
-                                                onPress={() =>
-                                                    router.push({
-                                                        pathname:
-                                                            "/community/group/[id]",
-                                                        params: {
-                                                            id: group.id,
-                                                        },
-                                                    })
-                                                }
-                                            >
-                                                <View style={styles.groupIcon}>
-                                                    <Ionicons
-                                                        name="people-outline"
-                                                        size={23}
-                                                        color={COLORS.primary}
-                                                    />
-                                                </View>
-
-                                                <View
-                                                    style={styles.groupContent}
-                                                >
-                                                    <View
-                                                        style={
-                                                            styles.groupTopRow
+                                                return (
+                                                    <Pressable
+                                                        key={group.id}
+                                                        style={({
+                                                            pressed,
+                                                        }) => [
+                                                            styles.groupRow,
+                                                            pressed &&
+                                                                styles.groupRowPressed,
+                                                        ]}
+                                                        onPress={() =>
+                                                            router.push({
+                                                                pathname:
+                                                                    "/community/group/[id]",
+                                                                params: {
+                                                                    id: group.id,
+                                                                },
+                                                            })
                                                         }
                                                     >
-                                                        <Text
+                                                        <View
                                                             style={
-                                                                styles.groupName
+                                                                styles.groupIcon
                                                             }
-                                                            numberOfLines={1}
                                                         >
-                                                            {group.name}
-                                                        </Text>
-                                                    </View>
+                                                            <Ionicons
+                                                                name="people-outline"
+                                                                size={23}
+                                                                color={
+                                                                    COLORS.primary
+                                                                }
+                                                            />
+                                                        </View>
 
-                                                    <View
-                                                        style={
-                                                            styles.groupMembersRow
-                                                        }
-                                                    >
-                                                        {!!preview
-                                                            ?.memberAvatars
-                                                            .length && (
+                                                        <View
+                                                            style={
+                                                                styles.groupContent
+                                                            }
+                                                        >
                                                             <View
                                                                 style={
-                                                                    styles.groupAvatarStack
+                                                                    styles.groupTopRow
                                                                 }
                                                             >
-                                                                {preview.memberAvatars.map(
-                                                                    (
-                                                                        avatar,
-                                                                        index,
-                                                                    ) => (
-                                                                        <Image
-                                                                            key={`${group.id}-member-${index}`}
-                                                                            source={{
-                                                                                uri: avatar,
-                                                                            }}
-                                                                            style={[
-                                                                                styles.groupMemberAvatar,
-                                                                                index >
-                                                                                    0 && {
-                                                                                    marginLeft:
-                                                                                        -7,
-                                                                                },
-                                                                            ]}
-                                                                        />
-                                                                    ),
+                                                                <Text
+                                                                    style={
+                                                                        styles.groupName
+                                                                    }
+                                                                    numberOfLines={
+                                                                        1
+                                                                    }
+                                                                >
+                                                                    {group.name}
+                                                                </Text>
+                                                            </View>
+
+                                                            <View
+                                                                style={
+                                                                    styles.groupMembersRow
+                                                                }
+                                                            >
+                                                                {!!preview
+                                                                    ?.memberAvatars
+                                                                    .length && (
+                                                                    <View
+                                                                        style={
+                                                                            styles.groupAvatarStack
+                                                                        }
+                                                                    >
+                                                                        {preview.memberAvatars.map(
+                                                                            (
+                                                                                avatar,
+                                                                                index,
+                                                                            ) => (
+                                                                                <Image
+                                                                                    key={`${group.id}-member-${index}`}
+                                                                                    source={{
+                                                                                        uri: avatar,
+                                                                                    }}
+                                                                                    style={[
+                                                                                        styles.groupMemberAvatar,
+                                                                                        index >
+                                                                                            0 && {
+                                                                                            marginLeft:
+                                                                                                -7,
+                                                                                        },
+                                                                                    ]}
+                                                                                />
+                                                                            ),
+                                                                        )}
+                                                                    </View>
+                                                                )}
+
+                                                                <Ionicons
+                                                                    name="people-outline"
+                                                                    size={13}
+                                                                    color={
+                                                                        COLORS.textMuted
+                                                                    }
+                                                                />
+
+                                                                <Text
+                                                                    style={
+                                                                        styles.groupMembers
+                                                                    }
+                                                                >
+                                                                    {
+                                                                        memberCount
+                                                                    }{" "}
+                                                                    {memberCount ===
+                                                                    1
+                                                                        ? "member"
+                                                                        : "members"}
+                                                                </Text>
+
+                                                                {activity && (
+                                                                    <Text
+                                                                        style={
+                                                                            styles.groupActiveMeta
+                                                                        }
+                                                                    >
+                                                                        · Active{" "}
+                                                                        {
+                                                                            activity.time
+                                                                        }{" "}
+                                                                        ago
+                                                                    </Text>
                                                                 )}
                                                             </View>
-                                                        )}
+
+                                                            {activity ? (
+                                                                <View
+                                                                    style={
+                                                                        styles.groupActivityRow
+                                                                    }
+                                                                >
+                                                                    {activity.avatar ? (
+                                                                        <Image
+                                                                            source={{
+                                                                                uri: activity.avatar,
+                                                                            }}
+                                                                            style={
+                                                                                styles.groupActivityAvatar
+                                                                            }
+                                                                        />
+                                                                    ) : (
+                                                                        <View
+                                                                            style={
+                                                                                styles.groupActivityAvatarFallback
+                                                                            }
+                                                                        >
+                                                                            <Ionicons
+                                                                                name="person"
+                                                                                size={
+                                                                                    10
+                                                                                }
+                                                                                color={
+                                                                                    COLORS.primary
+                                                                                }
+                                                                            />
+                                                                        </View>
+                                                                    )}
+
+                                                                    <Text
+                                                                        style={
+                                                                            styles.groupActivityText
+                                                                        }
+                                                                        numberOfLines={
+                                                                            1
+                                                                        }
+                                                                    >
+                                                                        <Text
+                                                                            style={
+                                                                                styles.groupActivityAuthor
+                                                                            }
+                                                                        >
+                                                                            {
+                                                                                activity.author
+                                                                            }
+
+                                                                            :{" "}
+                                                                        </Text>
+                                                                        {
+                                                                            activity.text
+                                                                        }
+                                                                    </Text>
+                                                                </View>
+                                                            ) : (
+                                                                <Text
+                                                                    style={
+                                                                        styles.groupNoActivity
+                                                                    }
+                                                                >
+                                                                    No activity
+                                                                    yet
+                                                                </Text>
+                                                            )}
+                                                        </View>
 
                                                         <Ionicons
-                                                            name="people-outline"
-                                                            size={13}
+                                                            name="chevron-forward"
+                                                            size={19}
                                                             color={
                                                                 COLORS.textMuted
                                                             }
                                                         />
+                                                    </Pressable>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+                                )}
 
-                                                        <Text
-                                                            style={
-                                                                styles.groupMembers
-                                                            }
-                                                        >
-                                                            {memberCount}{" "}
-                                                            {memberCount === 1
-                                                                ? "member"
-                                                                : "members"}
-                                                        </Text>
+                                {discoverGroups.length > 0 && (
+                                    <View style={styles.groupCollection}>
+                                        <View
+                                            style={styles.discoverSectionHeader}
+                                        >
+                                            <View
+                                                style={
+                                                    styles.discoverSectionTitleRow
+                                                }
+                                            >
+                                                <Text
+                                                    style={
+                                                        styles.groupSectionTitle
+                                                    }
+                                                >
+                                                    Discover Groups
+                                                </Text>
 
-                                                        {activity && (
-                                                            <Text
-                                                                style={
-                                                                    styles.groupActiveMeta
-                                                                }
-                                                            >
-                                                                · Active{" "}
-                                                                {activity.time}{" "}
-                                                                ago
-                                                            </Text>
-                                                        )}
-                                                    </View>
+                                                <View
+                                                    style={
+                                                        styles.discoverCountBadge
+                                                    }
+                                                >
+                                                    <Text
+                                                        style={
+                                                            styles.discoverCountText
+                                                        }
+                                                    >
+                                                        {discoverGroups.length}
+                                                    </Text>
+                                                </View>
+                                            </View>
 
-                                                    {activity ? (
+                                            <Text
+                                                style={
+                                                    styles.discoverSectionSubtitle
+                                                }
+                                            >
+                                                Find more football communities
+                                                to join.
+                                            </Text>
+                                        </View>
+
+                                        <View style={styles.groupsList}>
+                                            {discoverGroups.map((group) => {
+                                                const preview =
+                                                    groupPreviews[group.id];
+                                                const memberCount =
+                                                    groupMemberCounts[
+                                                        group.id
+                                                    ] ?? 0;
+                                                const joining =
+                                                    !!joiningGroups[group.id];
+
+                                                return (
+                                                    <Pressable
+                                                        key={group.id}
+                                                        style={({
+                                                            pressed,
+                                                        }) => [
+                                                            styles.groupRow,
+                                                            styles.discoverGroupRow,
+                                                            pressed &&
+                                                                styles.groupRowPressed,
+                                                        ]}
+                                                        onPress={() =>
+                                                            router.push({
+                                                                pathname:
+                                                                    "/community/group/[id]",
+                                                                params: {
+                                                                    id: group.id,
+                                                                },
+                                                            })
+                                                        }
+                                                    >
                                                         <View
                                                             style={
-                                                                styles.groupActivityRow
+                                                                styles.groupIcon
                                                             }
                                                         >
-                                                            {activity.avatar ? (
-                                                                <Image
-                                                                    source={{
-                                                                        uri: activity.avatar,
-                                                                    }}
-                                                                    style={
-                                                                        styles.groupActivityAvatar
-                                                                    }
-                                                                />
-                                                            ) : (
-                                                                <View
-                                                                    style={
-                                                                        styles.groupActivityAvatarFallback
-                                                                    }
-                                                                >
-                                                                    <Ionicons
-                                                                        name="person"
-                                                                        size={
-                                                                            10
-                                                                        }
-                                                                        color={
-                                                                            COLORS.primary
-                                                                        }
-                                                                    />
-                                                                </View>
-                                                            )}
+                                                            <Ionicons
+                                                                name="people-outline"
+                                                                size={23}
+                                                                color={
+                                                                    COLORS.primary
+                                                                }
+                                                            />
+                                                        </View>
 
+                                                        <View
+                                                            style={
+                                                                styles.groupContent
+                                                            }
+                                                        >
                                                             <Text
                                                                 style={
-                                                                    styles.groupActivityText
+                                                                    styles.groupName
                                                                 }
                                                                 numberOfLines={
                                                                     1
                                                                 }
                                                             >
+                                                                {group.name}
+                                                            </Text>
+
+                                                            <Text
+                                                                style={
+                                                                    styles.groupDescription
+                                                                }
+                                                                numberOfLines={
+                                                                    1
+                                                                }
+                                                            >
+                                                                {
+                                                                    group.description
+                                                                }
+                                                            </Text>
+
+                                                            <View
+                                                                style={
+                                                                    styles.groupMembersRow
+                                                                }
+                                                            >
+                                                                {!!preview
+                                                                    ?.memberAvatars
+                                                                    .length && (
+                                                                    <View
+                                                                        style={
+                                                                            styles.groupAvatarStack
+                                                                        }
+                                                                    >
+                                                                        {preview.memberAvatars.map(
+                                                                            (
+                                                                                avatar,
+                                                                                index,
+                                                                            ) => (
+                                                                                <Image
+                                                                                    key={`${group.id}-member-${index}`}
+                                                                                    source={{
+                                                                                        uri: avatar,
+                                                                                    }}
+                                                                                    style={[
+                                                                                        styles.groupMemberAvatar,
+                                                                                        index >
+                                                                                            0 && {
+                                                                                            marginLeft:
+                                                                                                -7,
+                                                                                        },
+                                                                                    ]}
+                                                                                />
+                                                                            ),
+                                                                        )}
+                                                                    </View>
+                                                                )}
+
+                                                                <Ionicons
+                                                                    name="people-outline"
+                                                                    size={13}
+                                                                    color={
+                                                                        COLORS.textMuted
+                                                                    }
+                                                                />
+
                                                                 <Text
                                                                     style={
-                                                                        styles.groupActivityAuthor
+                                                                        styles.groupMembers
                                                                     }
                                                                 >
                                                                     {
-                                                                        activity.author
-                                                                    }
-                                                                    :{" "}
+                                                                        memberCount
+                                                                    }{" "}
+                                                                    {memberCount ===
+                                                                    1
+                                                                        ? "member"
+                                                                        : "members"}
                                                                 </Text>
-                                                                {activity.text}
-                                                            </Text>
+                                                            </View>
                                                         </View>
-                                                    ) : (
-                                                        <Text
-                                                            style={
-                                                                styles.groupNoActivity
-                                                            }
+
+                                                        <Pressable
+                                                            style={({
+                                                                pressed,
+                                                            }) => [
+                                                                styles.joinGroupButton,
+                                                                pressed &&
+                                                                    styles.joinGroupButtonPressed,
+                                                                joining &&
+                                                                    styles.joinGroupButtonDisabled,
+                                                            ]}
+                                                            disabled={joining}
+                                                            onPress={(
+                                                                event,
+                                                            ) => {
+                                                                event.stopPropagation();
+                                                                void joinGroupFromDiscover(
+                                                                    group.id,
+                                                                );
+                                                            }}
+                                                            accessibilityRole="button"
+                                                            accessibilityLabel={`Join ${group.name}`}
                                                         >
-                                                            No activity yet
-                                                        </Text>
-                                                    )}
-                                                </View>
-
-                                                <Ionicons
-                                                    name="chevron-forward"
-                                                    size={19}
-                                                    color={COLORS.textMuted}
-                                                />
-                                            </Pressable>
-                                        );
-                                    })}
-                                </View>
-                            </View>
-                        )}
-
-                        {discoverGroups.length > 0 && (
-                            <View style={styles.groupCollection}>
-                                <View style={styles.discoverSectionHeader}>
-                                    <View
-                                        style={styles.discoverSectionTitleRow}
-                                    >
-                                        <Text style={styles.groupSectionTitle}>
-                                            Discover Groups
-                                        </Text>
-
-                                        <View style={styles.discoverCountBadge}>
-                                            <Text
-                                                style={styles.discoverCountText}
-                                            >
-                                                {discoverGroups.length}
-                                            </Text>
+                                                            {joining ? (
+                                                                <ActivityIndicator
+                                                                    size="small"
+                                                                    color={
+                                                                        COLORS.white
+                                                                    }
+                                                                />
+                                                            ) : (
+                                                                <Text
+                                                                    style={
+                                                                        styles.joinGroupButtonText
+                                                                    }
+                                                                >
+                                                                    Join
+                                                                </Text>
+                                                            )}
+                                                        </Pressable>
+                                                    </Pressable>
+                                                );
+                                            })}
                                         </View>
                                     </View>
+                                )}
 
-                                    <Text
-                                        style={styles.discoverSectionSubtitle}
-                                    >
-                                        Find more football communities to join.
-                                    </Text>
-                                </View>
-
-                                <View style={styles.groupsList}>
-                                    {discoverGroups.map((group) => {
-                                        const preview = groupPreviews[group.id];
-                                        const memberCount =
-                                            groupMemberCounts[group.id] ?? 0;
-                                        const joining =
-                                            !!joiningGroups[group.id];
-
-                                        return (
-                                            <Pressable
-                                                key={group.id}
-                                                style={({ pressed }) => [
-                                                    styles.groupRow,
-                                                    styles.discoverGroupRow,
-                                                    pressed &&
-                                                        styles.groupRowPressed,
-                                                ]}
-                                                onPress={() =>
-                                                    router.push({
-                                                        pathname:
-                                                            "/community/group/[id]",
-                                                        params: {
-                                                            id: group.id,
-                                                        },
-                                                    })
+                                {yourGroups.length === 0 &&
+                                    discoverGroups.length === 0 && (
+                                        <View style={styles.emptyGroupsState}>
+                                            <Ionicons
+                                                name={
+                                                    normalizedGroupSearch
+                                                        ? "search-outline"
+                                                        : "people-outline"
                                                 }
+                                                size={26}
+                                                color={COLORS.primary}
+                                            />
+                                            <Text
+                                                style={styles.emptyGroupsTitle}
                                             >
-                                                <View style={styles.groupIcon}>
-                                                    <Ionicons
-                                                        name="people-outline"
-                                                        size={23}
-                                                        color={COLORS.primary}
-                                                    />
-                                                </View>
+                                                {normalizedGroupSearch
+                                                    ? "No groups found"
+                                                    : "No groups yet"}
+                                            </Text>
+                                            <Text
+                                                style={styles.emptyGroupsText}
+                                            >
+                                                {normalizedGroupSearch
+                                                    ? `No groups match “${groupSearch.trim()}”. Try another search.`
+                                                    : "Football groups will appear here."}
+                                            </Text>
 
-                                                <View
-                                                    style={styles.groupContent}
-                                                >
-                                                    <Text
-                                                        style={styles.groupName}
-                                                        numberOfLines={1}
-                                                    >
-                                                        {group.name}
-                                                    </Text>
-
-                                                    <Text
-                                                        style={
-                                                            styles.groupDescription
-                                                        }
-                                                        numberOfLines={1}
-                                                    >
-                                                        {group.description}
-                                                    </Text>
-
-                                                    <View
-                                                        style={
-                                                            styles.groupMembersRow
-                                                        }
-                                                    >
-                                                        {!!preview
-                                                            ?.memberAvatars
-                                                            .length && (
-                                                            <View
-                                                                style={
-                                                                    styles.groupAvatarStack
-                                                                }
-                                                            >
-                                                                {preview.memberAvatars.map(
-                                                                    (
-                                                                        avatar,
-                                                                        index,
-                                                                    ) => (
-                                                                        <Image
-                                                                            key={`${group.id}-member-${index}`}
-                                                                            source={{
-                                                                                uri: avatar,
-                                                                            }}
-                                                                            style={[
-                                                                                styles.groupMemberAvatar,
-                                                                                index >
-                                                                                    0 && {
-                                                                                    marginLeft:
-                                                                                        -7,
-                                                                                },
-                                                                            ]}
-                                                                        />
-                                                                    ),
-                                                                )}
-                                                            </View>
-                                                        )}
-
-                                                        <Ionicons
-                                                            name="people-outline"
-                                                            size={13}
-                                                            color={
-                                                                COLORS.textMuted
-                                                            }
-                                                        />
-
-                                                        <Text
-                                                            style={
-                                                                styles.groupMembers
-                                                            }
-                                                        >
-                                                            {memberCount}{" "}
-                                                            {memberCount === 1
-                                                                ? "member"
-                                                                : "members"}
-                                                        </Text>
-                                                    </View>
-                                                </View>
-
+                                            {normalizedGroupSearch && (
                                                 <Pressable
                                                     style={({ pressed }) => [
-                                                        styles.joinGroupButton,
+                                                        styles.clearGroupSearchButton,
                                                         pressed &&
-                                                            styles.joinGroupButtonPressed,
-                                                        joining &&
-                                                            styles.joinGroupButtonDisabled,
+                                                            styles.pressed,
                                                     ]}
-                                                    disabled={joining}
-                                                    onPress={(event) => {
-                                                        event.stopPropagation();
-                                                        void joinGroupFromDiscover(
-                                                            group.id,
-                                                        );
-                                                    }}
-                                                    accessibilityRole="button"
-                                                    accessibilityLabel={`Join ${group.name}`}
+                                                    onPress={() =>
+                                                        setGroupSearch("")
+                                                    }
                                                 >
-                                                    {joining ? (
-                                                        <ActivityIndicator
-                                                            size="small"
-                                                            color={COLORS.white}
-                                                        />
-                                                    ) : (
-                                                        <Text
-                                                            style={
-                                                                styles.joinGroupButtonText
-                                                            }
-                                                        >
-                                                            Join
-                                                        </Text>
-                                                    )}
+                                                    <Text
+                                                        style={
+                                                            styles.clearGroupSearchButtonText
+                                                        }
+                                                    >
+                                                        Clear search
+                                                    </Text>
                                                 </Pressable>
-                                            </Pressable>
-                                        );
-                                    })}
-                                </View>
-                            </View>
-                        )}
-
-                        {yourGroups.length === 0 &&
-                            discoverGroups.length === 0 && (
-                                <View style={styles.emptyGroupsState}>
-                                    <Ionicons
-                                        name={
-                                            normalizedGroupSearch
-                                                ? "search-outline"
-                                                : "people-outline"
-                                        }
-                                        size={26}
-                                        color={COLORS.primary}
-                                    />
-                                    <Text style={styles.emptyGroupsTitle}>
-                                        {normalizedGroupSearch
-                                            ? "No groups found"
-                                            : "No groups yet"}
-                                    </Text>
-                                    <Text style={styles.emptyGroupsText}>
-                                        {normalizedGroupSearch
-                                            ? `No groups match “${groupSearch.trim()}”. Try another search.`
-                                            : "Football groups will appear here."}
-                                    </Text>
-
-                                    {normalizedGroupSearch && (
-                                        <Pressable
-                                            style={({ pressed }) => [
-                                                styles.clearGroupSearchButton,
-                                                pressed && styles.pressed,
-                                            ]}
-                                            onPress={() => setGroupSearch("")}
-                                        >
-                                            <Text
-                                                style={
-                                                    styles.clearGroupSearchButtonText
-                                                }
-                                            >
-                                                Clear search
-                                            </Text>
-                                        </Pressable>
+                                            )}
+                                        </View>
                                     )}
-                                </View>
-                            )}
                             </>
                         )}
                     </View>

@@ -37,6 +37,11 @@ type CommunityCommentRow = {
     created_at: string;
 };
 
+type CommunityCommentLikeRow = {
+    comment_id: number;
+    user_id: string;
+};
+
 type PublicPlayerProfile = {
     user_id?: string;
     id?: string;
@@ -63,6 +68,8 @@ type Comment = {
     avatar?: string;
     text: string;
     time: string;
+    likes: number;
+    likedByMe: boolean;
 };
 
 function getGroupName(groupId: string | null) {
@@ -131,7 +138,6 @@ async function getPublicProfile(userId: string) {
     return (profile ?? null) as PublicPlayerProfile | null;
 }
 
-
 type CommunityPostCacheEntry = {
     post: PostDetails;
     comments: Comment[];
@@ -170,9 +176,12 @@ export default function CommunityPostScreen() {
 
     const [posting, setPosting] = useState(false);
 
-    const [joined, setJoined] = useState(
-        () => cachedPost?.joined ?? false,
-    );
+    const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+    const [likingComments, setLikingComments] = useState<
+        Record<string, boolean>
+    >({});
+
+    const [joined, setJoined] = useState(() => cachedPost?.joined ?? false);
 
     const [membershipLoading, setMembershipLoading] = useState(
         () => !cachedPost?.membershipResolved,
@@ -225,6 +234,46 @@ export default function CommunityPostScreen() {
 
             const commentRows = (commentData ?? []) as CommunityCommentRow[];
 
+            const {
+                data: { user },
+                error: userError,
+            } = await supabase.auth.getUser();
+
+            if (userError) {
+                throw userError;
+            }
+
+            setCurrentUserId(user?.id ?? null);
+
+            const commentIds = commentRows.map((comment) => comment.id);
+
+            let commentLikeRows: CommunityCommentLikeRow[] = [];
+
+            if (commentIds.length > 0) {
+                const { data: likeData, error: likesError } = await supabase
+                    .from("community_comment_likes")
+                    .select("comment_id,user_id")
+                    .in("comment_id", commentIds);
+
+                if (likesError) {
+                    throw likesError;
+                }
+
+                commentLikeRows = (likeData ?? []) as CommunityCommentLikeRow[];
+            }
+
+            const likeCounts = new Map<string, number>();
+            const likedByMe = new Set<string>();
+
+            commentLikeRows.forEach((like) => {
+                const commentId = String(like.comment_id);
+                likeCounts.set(commentId, (likeCounts.get(commentId) ?? 0) + 1);
+
+                if (user && like.user_id === user.id) {
+                    likedByMe.add(commentId);
+                }
+            });
+
             const uniqueUserIds = [
                 ...new Set([
                     postRow.user_id,
@@ -266,6 +315,8 @@ export default function CommunityPostScreen() {
                     avatar: profile?.avatar_url?.trim() || undefined,
                     text: comment.content,
                     time: getTime(comment.created_at),
+                    likes: likeCounts.get(String(comment.id)) ?? 0,
+                    likedByMe: likedByMe.has(String(comment.id)),
                 };
             });
 
@@ -369,10 +420,7 @@ export default function CommunityPostScreen() {
                 };
             }
         } catch (membershipError) {
-            console.error(
-                "Failed to load group membership:",
-                membershipError,
-            );
+            console.error("Failed to load group membership:", membershipError);
             setJoined(false);
         } finally {
             setMembershipLoading(false);
@@ -384,11 +432,7 @@ export default function CommunityPostScreen() {
     }, [loadMembership]);
 
     async function joinGroupToComment() {
-        if (
-            !post?.groupId ||
-            joined ||
-            joiningGroup
-        ) {
+        if (!post?.groupId || joined || joiningGroup) {
             return;
         }
 
@@ -512,6 +556,8 @@ export default function CommunityPostScreen() {
                 avatar: profile?.avatar_url?.trim() || undefined,
                 text: inserted.content,
                 time: "now",
+                likes: 0,
+                likedByMe: false,
             };
 
             setComments((current) => {
@@ -535,6 +581,122 @@ export default function CommunityPostScreen() {
             console.error("Failed to post comment:", submitError);
         } finally {
             setPosting(false);
+        }
+    }
+
+    async function toggleCommentLike(commentId: string) {
+        if (!currentUserId || likingComments[commentId]) {
+            return;
+        }
+
+        const existingComment = comments.find(
+            (comment) => comment.id === commentId,
+        );
+
+        if (!existingComment) {
+            return;
+        }
+
+        const shouldLike = !existingComment.likedByMe;
+
+        setLikingComments((current) => ({
+            ...current,
+            [commentId]: true,
+        }));
+
+        setComments((current) => {
+            const nextComments = current.map((comment) =>
+                comment.id === commentId
+                    ? {
+                          ...comment,
+                          likedByMe: shouldLike,
+                          likes: Math.max(
+                              0,
+                              comment.likes + (shouldLike ? 1 : -1),
+                          ),
+                      }
+                    : comment,
+            );
+
+            if (postId && post) {
+                const previous = getCommunityPostCache(postId);
+                communityPostCache[postId] = {
+                    post,
+                    comments: nextComments,
+                    joined: previous?.joined ?? joined,
+                    membershipResolved:
+                        previous?.membershipResolved ?? !post.groupId,
+                };
+            }
+
+            return nextComments;
+        });
+
+        try {
+            if (shouldLike) {
+                const { error: likeError } = await supabase
+                    .from("community_comment_likes")
+                    .upsert(
+                        {
+                            comment_id: Number(commentId),
+                            user_id: currentUserId,
+                        },
+                        {
+                            onConflict: "comment_id,user_id",
+                        },
+                    );
+
+                if (likeError) {
+                    throw likeError;
+                }
+            } else {
+                const { error: unlikeError } = await supabase
+                    .from("community_comment_likes")
+                    .delete()
+                    .eq("comment_id", Number(commentId))
+                    .eq("user_id", currentUserId);
+
+                if (unlikeError) {
+                    throw unlikeError;
+                }
+            }
+        } catch (likeError) {
+            console.error("Failed to update comment like:", likeError);
+
+            setComments((current) => {
+                const nextComments = current.map((comment) =>
+                    comment.id === commentId
+                        ? {
+                              ...comment,
+                              likedByMe: !shouldLike,
+                              likes: Math.max(
+                                  0,
+                                  comment.likes + (shouldLike ? -1 : 1),
+                              ),
+                          }
+                        : comment,
+                );
+
+                if (postId && post) {
+                    const previous = getCommunityPostCache(postId);
+                    communityPostCache[postId] = {
+                        post,
+                        comments: nextComments,
+                        joined: previous?.joined ?? joined,
+                        membershipResolved:
+                            previous?.membershipResolved ?? !post.groupId,
+                    };
+                }
+
+                return nextComments;
+            });
+
+            Alert.alert("Couldn't update like", "Please try again.");
+        } finally {
+            setLikingComments((current) => ({
+                ...current,
+                [commentId]: false,
+            }));
         }
     }
 
@@ -565,7 +727,7 @@ export default function CommunityPostScreen() {
                         />
                     </Pressable>
 
-                    <Text style={styles.headerTitle}>Post</Text>
+                    <Text style={styles.headerTitle}>Comments</Text>
 
                     <View style={styles.headerSpacer} />
                 </View>
@@ -606,7 +768,7 @@ export default function CommunityPostScreen() {
                         />
                     </Pressable>
 
-                    <Text style={styles.headerTitle}>Post</Text>
+                    <Text style={styles.headerTitle}>Comments</Text>
 
                     <View style={styles.headerSpacer} />
                 </View>
@@ -616,6 +778,7 @@ export default function CommunityPostScreen() {
                     contentContainerStyle={styles.scrollContent}
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="interactive"
                 >
                     <View style={styles.postCard}>
                         <View style={styles.postHeader}>
@@ -720,19 +883,64 @@ export default function CommunityPostScreen() {
                                     )}
 
                                     <View style={styles.commentContent}>
-                                        <View style={styles.commentTopRow}>
+                                        <View style={styles.commentBubble}>
                                             <Text style={styles.commentAuthor}>
                                                 {comment.author}
                                             </Text>
 
-                                            <Text style={styles.commentTime}>
-                                                {comment.time}
+                                            <Text style={styles.commentText}>
+                                                {comment.text}
                                             </Text>
                                         </View>
 
-                                        <Text style={styles.commentText}>
-                                            {comment.text}
-                                        </Text>
+                                        <View style={styles.commentActionsRow}>
+                                            <Text style={styles.commentTime}>
+                                                {comment.time}
+                                            </Text>
+
+                                            <Pressable
+                                                hitSlop={8}
+                                                disabled={
+                                                    !!likingComments[comment.id]
+                                                }
+                                                onPress={() => {
+                                                    void toggleCommentLike(
+                                                        comment.id,
+                                                    );
+                                                }}
+                                            >
+                                                <Text
+                                                    style={[
+                                                        styles.commentLikeAction,
+                                                        comment.likedByMe &&
+                                                            styles.commentLikeActionActive,
+                                                    ]}
+                                                >
+                                                    Like
+                                                </Text>
+                                            </Pressable>
+
+                                            {comment.likes > 0 && (
+                                                <View
+                                                    style={
+                                                        styles.commentLikeCount
+                                                    }
+                                                >
+                                                    <Ionicons
+                                                        name="heart"
+                                                        size={11}
+                                                        color={COLORS.white}
+                                                    />
+                                                    <Text
+                                                        style={
+                                                            styles.commentLikeCountText
+                                                        }
+                                                    >
+                                                        {comment.likes}
+                                                    </Text>
+                                                </View>
+                                            )}
+                                        </View>
                                     </View>
                                 </View>
                             ))}
@@ -1029,10 +1237,9 @@ const styles = StyleSheet.create({
     commentRow: {
         flexDirection: "row",
         alignItems: "flex-start",
-        paddingHorizontal: 16,
-        paddingVertical: 13,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: "#EDF1EF",
+        paddingHorizontal: 12,
+        paddingTop: 10,
+        paddingBottom: 4,
     },
 
     commentAvatar: {
@@ -1053,17 +1260,30 @@ const styles = StyleSheet.create({
 
     commentContent: {
         flex: 1,
-        marginLeft: 10,
+        marginLeft: 8,
         minWidth: 0,
     },
 
-    commentTopRow: {
+    commentBubble: {
+        alignSelf: "flex-start",
+        maxWidth: "100%",
+        backgroundColor: COLORS.surfaceAlt,
+        borderRadius: 16,
+        paddingHorizontal: 12,
+        paddingTop: 8,
+        paddingBottom: 9,
+    },
+
+    commentActionsRow: {
+        minHeight: 27,
         flexDirection: "row",
         alignItems: "center",
+        gap: 12,
+        paddingLeft: 10,
+        paddingTop: 3,
     },
 
     commentAuthor: {
-        flex: 1,
         color: COLORS.text,
         fontSize: 13,
         lineHeight: 17,
@@ -1072,10 +1292,9 @@ const styles = StyleSheet.create({
 
     commentTime: {
         color: COLORS.textMuted,
-        fontSize: 10,
-        lineHeight: 14,
+        fontSize: 11,
+        lineHeight: 15,
         fontWeight: "600",
-        marginLeft: 8,
     },
 
     commentText: {
@@ -1083,7 +1302,37 @@ const styles = StyleSheet.create({
         fontSize: 13,
         lineHeight: 19,
         fontWeight: "500",
-        marginTop: 3,
+        marginTop: 2,
+    },
+
+    commentLikeAction: {
+        color: COLORS.textSecondary,
+        fontSize: 11,
+        lineHeight: 15,
+        fontWeight: "800",
+    },
+
+    commentLikeActionActive: {
+        color: COLORS.primary,
+    },
+
+    commentLikeCount: {
+        minHeight: 20,
+        borderRadius: 10,
+        backgroundColor: COLORS.primary,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 3,
+        paddingHorizontal: 6,
+        marginLeft: "auto",
+        marginRight: 6,
+    },
+
+    commentLikeCountText: {
+        color: COLORS.white,
+        fontSize: 10,
+        lineHeight: 13,
+        fontWeight: "800",
     },
 
     composerContainer: {
