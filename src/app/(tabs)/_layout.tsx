@@ -19,11 +19,7 @@ export default function TabLayout() {
 
   const isDesktopWeb = Platform.OS === "web" && width >= 900;
 
-  // Native devices use the real safe-area inset.
-  // Mobile web gets a little extra breathing room
-  // so labels are never clipped.
-  const bottomInset =
-    Platform.OS === "web" ? 0 : insets.bottom;
+  const bottomInset = Platform.OS === "web" ? 0 : insets.bottom;
 
   return (
     <View style={styles.root}>
@@ -73,7 +69,6 @@ export default function TabLayout() {
                 borderTopColor: "#DDE6E2",
                 borderTopWidth: StyleSheet.hairlineWidth,
 
-                // More room for both icon + label.
                 height: 72 + bottomInset,
 
                 paddingTop: 8,
@@ -126,6 +121,7 @@ export default function TabLayout() {
           },
         }}
       >
+        {/* GAMES */}
         <Tabs.Screen
           name="index"
           options={{
@@ -133,11 +129,7 @@ export default function TabLayout() {
 
             tabBarIcon: ({ color, focused }) => (
               <Ionicons
-                name={
-                  focused
-                    ? "football"
-                    : "football-outline"
-                }
+                name={focused ? "football" : "football-outline"}
                 size={23}
                 color={color}
               />
@@ -145,6 +137,7 @@ export default function TabLayout() {
           }}
         />
 
+        {/* BOOKINGS */}
         <Tabs.Screen
           name="bookings"
           options={{
@@ -152,11 +145,7 @@ export default function TabLayout() {
 
             tabBarIcon: ({ color, focused }) => (
               <Ionicons
-                name={
-                  focused
-                    ? "calendar"
-                    : "calendar-outline"
-                }
+                name={focused ? "calendar" : "calendar-outline"}
                 size={23}
                 color={color}
               />
@@ -164,25 +153,7 @@ export default function TabLayout() {
           }}
         />
 
-        <Tabs.Screen
-          name="friends"
-          options={{
-            title: "Friends",
-
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={
-                  focused
-                    ? "people"
-                    : "people-outline"
-                }
-                size={23}
-                color={color}
-              />
-            ),
-          }}
-        />
-
+        {/* MESSAGES */}
         <Tabs.Screen
           name="messages"
           options={{
@@ -192,8 +163,8 @@ export default function TabLayout() {
               <Ionicons
                 name={
                   focused
-                    ? "chatbubbles"
-                    : "chatbubbles-outline"
+                    ? "chatbubble-ellipses"
+                    : "chatbubble-ellipses-outline"
                 }
                 size={23}
                 color={color}
@@ -202,6 +173,23 @@ export default function TabLayout() {
           }}
         />
 
+        {/* COMMUNITIES */}
+        <Tabs.Screen
+          name="communities"
+          options={{
+            title: "Communities",
+
+            tabBarIcon: ({ color, focused }) => (
+              <Ionicons
+                name={focused ? "people" : "people-outline"}
+                size={23}
+                color={color}
+              />
+            ),
+          }}
+        />
+
+        {/* PROFILE */}
         <Tabs.Screen
           name="profile"
           options={{
@@ -209,15 +197,19 @@ export default function TabLayout() {
 
             tabBarIcon: ({ color, focused }) => (
               <Ionicons
-                name={
-                  focused
-                    ? "person"
-                    : "person-outline"
-                }
+                name={focused ? "person" : "person-outline"}
                 size={23}
                 color={color}
               />
             ),
+          }}
+        />
+
+        {/* Keep Friends route, but hide it from the tab bar */}
+        <Tabs.Screen
+          name="friends"
+          options={{
+            href: null,
           }}
         />
       </Tabs>

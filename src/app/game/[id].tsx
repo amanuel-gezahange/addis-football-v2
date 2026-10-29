@@ -1,10 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -56,18 +57,66 @@ type GameDetails = {
   maps_url: string | null;
 };
 
-const GAME_DETAIL_HERO = require("../../../assets/images/game-detail-hero.jpg");
+const GAME_DETAIL_HERO = require("../../../assets/images/details.jpg");
+
+/*
+ * Keep recently loaded game details in memory.
+ *
+ * Each game is cached separately by its game ID. This means:
+ *
+ * Game 1 -> cached independently
+ * Game 2 -> cached independently
+ * Game 3 -> cached independently
+ *
+ * Returning to a previously opened game can therefore render immediately
+ * while Supabase refreshes the latest information in the background.
+ */
+const gameDetailsCache: Record<string, GameDetails> = {};
+const joinedPlayersCache: Record<string, JoinedPlayer[]> = {};
+const favoriteCache: Record<string, boolean> = {};
+
+function getFavoriteCacheKey(userId: string, gameId: string) {
+  return `${userId}:${gameId}`;
+}
 
 export default function GameDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { language, t } = useLanguage();
 
-  const [game, setGame] = useState<GameDetails | null>(null);
-  const [loading, setLoading] = useState(true);
+  const gameId = id ? String(id) : null;
+
+  const [game, setGame] = useState<GameDetails | null>(() =>
+    gameId ? (gameDetailsCache[gameId] ?? null) : null,
+  );
+
+  const [loading, setLoading] = useState(
+    () => !gameId || !gameDetailsCache[gameId],
+  );
+
   const [error, setError] = useState<string | null>(null);
+
+  const [joinedPlayers, setJoinedPlayers] = useState<JoinedPlayer[]>(() =>
+    gameId ? (joinedPlayersCache[gameId] ?? []) : [],
+  );
+
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   const [isFavorite, setIsFavorite] = useState(false);
   const [favoriteLoading, setFavoriteLoading] = useState(false);
+
+  const [manageBookingVisible, setManageBookingVisible] = useState(false);
+  const [cancellingBooking, setCancellingBooking] = useState(false);
+  const [cancelBookingError, setCancelBookingError] = useState<string | null>(
+    null,
+  );
+  const [currentBookingQuantity, setCurrentBookingQuantity] = useState(1);
+  const [selectedBookingQuantity, setSelectedBookingQuantity] = useState(1);
+  const [quantityModalVisible, setQuantityModalVisible] = useState(false);
+  const [updatingQuantity, setUpdatingQuantity] = useState(false);
+  const [quantityUpdateError, setQuantityUpdateError] = useState<string | null>(
+    null,
+  );
+
   const [bookingState, setBookingState] = useState<GameBookingState>({
     bookingStatus: null,
     paymentStatus: null,
@@ -75,8 +124,37 @@ export default function GameDetailsScreen() {
     paymentProvider: null,
   });
 
+  const scrollViewRef = useRef<ScrollView>(null);
+
   useEffect(() => {
-    loadGame();
+    if (!gameId) {
+      void loadGame(true);
+      void loadJoinedPlayers();
+      return;
+    }
+
+    const cachedGame = gameDetailsCache[gameId];
+    const cachedPlayers = joinedPlayersCache[gameId];
+
+    if (cachedGame) {
+      setGame(cachedGame);
+      setLoading(false);
+    } else {
+      setGame(null);
+    }
+
+    if (cachedPlayers) {
+      setJoinedPlayers(cachedPlayers);
+    } else {
+      setJoinedPlayers([]);
+    }
+
+    /*
+     * If this game has already been loaded, refresh silently.
+     * Otherwise show the normal first-load spinner.
+     */
+    void loadGame(!cachedGame);
+    void loadJoinedPlayers();
   }, [id]);
 
   useEffect(() => {
@@ -95,6 +173,14 @@ export default function GameDetailsScreen() {
         return;
       }
 
+      const favoriteCacheKey = getFavoriteCacheKey(userId, String(id));
+
+      if (
+        Object.prototype.hasOwnProperty.call(favoriteCache, favoriteCacheKey)
+      ) {
+        setIsFavorite(favoriteCache[favoriteCacheKey]);
+      }
+
       const { data, error: favoriteError } = await supabase
         .from("favorites")
         .select("id")
@@ -111,7 +197,10 @@ export default function GameDetailsScreen() {
         return;
       }
 
-      setIsFavorite(Boolean(data));
+      const nextFavoriteState = Boolean(data);
+
+      favoriteCache[favoriteCacheKey] = nextFavoriteState;
+      setIsFavorite(nextFavoriteState);
     }
 
     loadFavorite();
@@ -121,14 +210,67 @@ export default function GameDetailsScreen() {
     };
   }, [id]);
 
-  async function loadGame() {
+  async function loadJoinedPlayers() {
+    if (!id) {
+      setJoinedPlayers([]);
+      return;
+    }
+
+    const currentGameId = String(id);
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    setCurrentUserId(session?.user?.id ?? null);
+
+    const { data, error: playersError } = await supabase.rpc(
+      "get_confirmed_game_players",
+      {
+        p_game_id: Number(id),
+      },
+    );
+
+    if (playersError) {
+      console.log("Confirmed players error:", playersError.message);
+
+      /*
+       * If we already have cached players, keep displaying them instead of
+       * replacing the section with an empty state because of a temporary
+       * network error.
+       */
+      if (!joinedPlayersCache[currentGameId]) {
+        setJoinedPlayers([]);
+      }
+
+      return;
+    }
+
+    const nextPlayers: JoinedPlayer[] = (data || []).map((player: any) => ({
+      bookingId: Number(player.booking_id),
+      userId: String(player.user_id),
+      fullName: String(player.full_name || "Player"),
+      avatarUrl: player.avatar_url ? String(player.avatar_url) : null,
+      quantity: Number(player.quantity ?? 1),
+    }));
+
+    joinedPlayersCache[currentGameId] = nextPlayers;
+    setJoinedPlayers(nextPlayers);
+  }
+
+  async function loadGame(showLoading = false) {
     if (!id) {
       setError(t("gameDetails.gameNotFound"));
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    const currentGameId = String(id);
+
+    if (showLoading && !gameDetailsCache[currentGameId]) {
+      setLoading(true);
+    }
+
     setError(null);
 
     const { data, error: gameError } = await supabase
@@ -168,13 +310,25 @@ export default function GameDetailsScreen() {
     if (gameError || !data) {
       console.log("Game details error:", gameError?.message);
 
-      setError(t("gameDetails.couldNotLoadGame"));
-      setGame(null);
+      /*
+       * If this is the first load, show the normal error screen.
+       * If cached game data already exists, keep displaying the cached game
+       * instead of replacing the screen because of a temporary refresh error.
+       */
+      if (!gameDetailsCache[currentGameId]) {
+        setError(t("gameDetails.couldNotLoadGame"));
+        setGame(null);
+      }
+
       setLoading(false);
       return;
     }
 
-    setGame(data as GameDetails);
+    const nextGame = data as GameDetails;
+
+    gameDetailsCache[currentGameId] = nextGame;
+
+    setGame(nextGame);
     setLoading(false);
   }
 
@@ -185,6 +339,7 @@ export default function GameDetailsScreen() {
       router.replace("/(tabs)");
     }
   }
+
   type EthiopianLanguage = "am" | "om";
 
   const AMHARIC_MONTHS = [
@@ -276,15 +431,12 @@ export default function GameDetailsScreen() {
     }).formatToParts(date);
 
     const year = Number(parts.find((part) => part.type === "year")?.value);
-
     const month = Number(parts.find((part) => part.type === "month")?.value);
-
     const day = Number(parts.find((part) => part.type === "day")?.value);
 
     const eth = jdnToEthiopian(gregorianToJdn(year, month, day));
 
     const months = language === "om" ? OROMO_MONTHS : AMHARIC_MONTHS;
-
     const weekdays = language === "om" ? OROMO_WEEKDAYS : AMHARIC_WEEKDAYS;
 
     return {
@@ -424,6 +576,8 @@ export default function GameDetailsScreen() {
         return;
       }
 
+      const favoriteCacheKey = getFavoriteCacheKey(user.id, String(game.id));
+
       if (previousFavoriteState) {
         const { error: deleteError } = await supabase
           .from("favorites")
@@ -444,10 +598,21 @@ export default function GameDetailsScreen() {
           throw insertError;
         }
       }
+
+      favoriteCache[favoriteCacheKey] = !previousFavoriteState;
     } catch (favoriteError) {
       console.log("Favorite toggle error:", favoriteError);
 
       setIsFavorite(previousFavoriteState);
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (user) {
+        favoriteCache[getFavoriteCacheKey(user.id, String(game.id))] =
+          previousFavoriteState;
+      }
     } finally {
       setFavoriteLoading(false);
     }
@@ -470,6 +635,251 @@ export default function GameDetailsScreen() {
       await Linking.openURL(targetUrl);
     } catch (locationError) {
       console.log("Could not open game location:", locationError);
+    }
+  }
+
+  async function openManageBooking() {
+    if (!game) return;
+
+    setCancelBookingError(null);
+    setQuantityUpdateError(null);
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        throw userError;
+      }
+
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      const { data: booking, error: bookingError } = await supabase
+        .from("bookings")
+        .select("quantity")
+        .eq("user_id", user.id)
+        .eq("game_id", game.id)
+        .eq("status", "confirmed")
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (bookingError) {
+        throw bookingError;
+      }
+
+      const quantity = Math.max(Number(booking?.quantity ?? 1), 1);
+
+      setCurrentBookingQuantity(quantity);
+      setSelectedBookingQuantity(quantity);
+      setManageBookingVisible(true);
+    } catch (bookingError: any) {
+      console.log(
+        "Load booking quantity error:",
+        bookingError?.message || bookingError,
+      );
+
+      setCurrentBookingQuantity(1);
+      setSelectedBookingQuantity(1);
+      setManageBookingVisible(true);
+    }
+  }
+
+  function closeManageBooking() {
+    if (cancellingBooking) {
+      return;
+    }
+
+    setCancelBookingError(null);
+    setManageBookingVisible(false);
+  }
+
+  function openChangeQuantity() {
+    setQuantityUpdateError(null);
+    setSelectedBookingQuantity(currentBookingQuantity);
+    setManageBookingVisible(false);
+    setQuantityModalVisible(true);
+  }
+
+  function closeQuantityModal() {
+    if (updatingQuantity) return;
+
+    setQuantityUpdateError(null);
+    setSelectedBookingQuantity(currentBookingQuantity);
+    setQuantityModalVisible(false);
+  }
+
+  async function updateBookingQuantity() {
+    if (!game || updatingQuantity) return;
+
+    if (selectedBookingQuantity === currentBookingQuantity) {
+      setQuantityModalVisible(false);
+      return;
+    }
+
+    setUpdatingQuantity(true);
+    setQuantityUpdateError(null);
+
+    try {
+      const { data, error } = await supabase.rpc("update_booking_quantity", {
+        p_game_id: Number(game.id),
+        p_new_quantity: selectedBookingQuantity,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      const nextQuantity = Number(data?.quantity ?? selectedBookingQuantity);
+
+      const nextSpotsLeft = Number(data?.spots_left ?? game.spots_left ?? 0);
+
+      setCurrentBookingQuantity(nextQuantity);
+      setSelectedBookingQuantity(nextQuantity);
+
+      const nextGame: GameDetails = {
+        ...game,
+        spots_left: nextSpotsLeft,
+        status:
+          data?.game_status ?? (nextSpotsLeft <= 0 ? "full" : "available"),
+      };
+
+      gameDetailsCache[String(game.id)] = nextGame;
+      setGame(nextGame);
+
+      setQuantityModalVisible(false);
+
+      await loadGame(false);
+      await loadJoinedPlayers();
+    } catch (updateError: any) {
+      console.log(
+        "Update booking quantity error:",
+        updateError?.message || updateError,
+      );
+
+      setQuantityUpdateError(
+        updateError?.message ||
+          "We couldn't change your number of spots. Please try again.",
+      );
+    } finally {
+      setUpdatingQuantity(false);
+    }
+  }
+
+  async function cancelCurrentBooking() {
+    if (!game || cancellingBooking) {
+      return;
+    }
+
+    setCancellingBooking(true);
+    setCancelBookingError(null);
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) {
+        throw userError;
+      }
+
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      const { data: booking, error: bookingError } = await supabase
+        .from("bookings")
+        .select("id,status,payment_status")
+        .eq("user_id", user.id)
+        .eq("game_id", game.id)
+        .eq("status", "confirmed")
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (bookingError) {
+        throw bookingError;
+      }
+
+      if (!booking) {
+        throw new Error("Your confirmed booking could not be found.");
+      }
+
+      const { data: cancelData, error: cancelError } = await supabase.rpc(
+        "cancel_booking_v2",
+        {
+          p_game_id: Number(game.id),
+        },
+      );
+
+      if (cancelError) {
+        throw cancelError;
+      }
+
+      /*
+       * Preserve the existing legacy refund behavior used by Bookings.
+       * Organizer-direct payments are refunded by the organizer and must
+       * never call the old Chapa refund function.
+       */
+      if (
+        game.payment_method !== "organizer" &&
+        booking.payment_status === "paid" &&
+        cancelData?.refund_required === true
+      ) {
+        const { error: refundError } = await supabase.functions.invoke(
+          "refund-chapa-payment",
+          {
+            body: {
+              booking_id: booking.id,
+            },
+          },
+        );
+
+        if (refundError) {
+          console.log("Legacy refund request error:", refundError.message);
+        }
+      }
+
+      setManageBookingVisible(false);
+
+      setBookingState((current) => ({
+        ...current,
+        bookingStatus: null,
+        paymentStatus: null,
+      }));
+
+      const nextSpotsLeft = Number(
+        cancelData?.spots_left ?? game.spots_left ?? 0,
+      );
+
+      const nextGame: GameDetails = {
+        ...game,
+        spots_left: nextSpotsLeft,
+        status:
+          cancelData?.game_status ??
+          (nextSpotsLeft <= 0 ? "full" : "available"),
+      };
+
+      gameDetailsCache[String(game.id)] = nextGame;
+      setGame(nextGame);
+
+      await loadGame(false);
+      await loadJoinedPlayers();
+    } catch (cancelError: any) {
+      console.log("Cancel booking error:", cancelError?.message || cancelError);
+      setCancelBookingError(
+        cancelError?.message ||
+          "We couldn't cancel your booking. Please try again.",
+      );
+    } finally {
+      setCancellingBooking(false);
     }
   }
 
@@ -520,6 +930,7 @@ export default function GameDetailsScreen() {
   const isFull = game.status === "full" || Number(game.spots_left ?? 0) <= 0;
 
   const isFree = Number(game.price ?? 0) === 0;
+
   const isBookingConfirmed = bookingState.bookingStatus === "confirmed";
 
   const isPaymentSubmitted =
@@ -537,6 +948,7 @@ export default function GameDetailsScreen() {
   return (
     <View style={styles.screen}>
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -551,49 +963,6 @@ export default function GameDetailsScreen() {
           />
 
           <View style={styles.heroOverlay} />
-
-          <SafeAreaView
-            edges={["top"]}
-            style={styles.heroControls}
-            pointerEvents="box-none"
-          >
-            <Pressable
-              style={({ pressed }) => [
-                styles.heroButton,
-                pressed && styles.heroButtonPressed,
-              ]}
-              onPress={goBack}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Go back"
-            >
-              <Ionicons name="arrow-back" size={23} color="#F7F8FA" />
-            </Pressable>
-
-            {/* <Pressable
-              style={({ pressed }) => [
-                styles.heroButton,
-                pressed && styles.heroButtonPressed,
-              ]}
-              onPress={toggleFavorite}
-              disabled={favoriteLoading}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel={
-                isFavorite ? "Remove from favorites" : "Add to favorites"
-              }
-            >
-              {favoriteLoading ? (
-                <ActivityIndicator size="small" color="#F7F8FA" />
-              ) : (
-                <Ionicons
-                  name={isFavorite ? "heart" : "heart-outline"}
-                  size={23}
-                  color="#F7F8FA"
-                />
-              )}
-            </Pressable> */}
-          </SafeAreaView>
         </View>
 
         {/* WHITE DETAILS SHEET */}
@@ -610,6 +979,35 @@ export default function GameDetailsScreen() {
 
                 <Text style={styles.heroLocation} numberOfLines={2}>
                   {location}
+                </Text>
+              </View>
+            )}
+
+            {(isBookingConfirmed || isPaymentSubmitted) && (
+              <View
+                style={[
+                  styles.bookingStatusBadge,
+                  isBookingConfirmed && styles.bookingStatusBadgeConfirmed,
+                ]}
+              >
+                <Ionicons
+                  name={
+                    isBookingConfirmed
+                      ? "checkmark-circle-outline"
+                      : "time-outline"
+                  }
+                  size={15}
+                  color={isBookingConfirmed ? COLORS.primary : "#B76E00"}
+                />
+
+                <Text
+                  style={[
+                    styles.bookingStatusBadgeText,
+                    isBookingConfirmed &&
+                      styles.bookingStatusBadgeTextConfirmed,
+                  ]}
+                >
+                  {isBookingConfirmed ? "Confirmed" : "Payment pending"}
                 </Text>
               </View>
             )}
@@ -706,6 +1104,125 @@ export default function GameDetailsScreen() {
             </View>
           </View>
 
+          <View style={styles.divider} />
+
+          {/* PLAYERS */}
+
+          <View style={styles.section}>
+            <View style={styles.playersHeader}>
+              <Text style={[styles.sectionTitle, styles.playersSectionTitle]}>
+                Players
+              </Text>
+
+              <View style={styles.playersCountBadge}>
+                <Text style={styles.playersCountText}>
+                  {joinedPlayers.reduce(
+                    (total, player) => total + Math.max(player.quantity, 1),
+                    0,
+                  )}{" "}
+                  joined
+                </Text>
+              </View>
+            </View>
+
+            {joinedPlayers.length > 0 ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.playersHorizontalList}
+              >
+                {joinedPlayers.map((player) => {
+                  const isCurrentUser = player.userId === currentUserId;
+
+                  const firstName =
+                    player.fullName.trim().split(/\s+/)[0] || "Player";
+
+                  return (
+                    <Pressable
+                      key={`${player.bookingId}-${player.userId}`}
+                      style={({ pressed }) => [
+                        styles.playerHorizontalItem,
+                        pressed && styles.playerHorizontalItemPressed,
+                      ]}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/player/[id]",
+                          params: {
+                            id: player.userId,
+                          },
+                        })
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel={`View ${player.fullName}'s profile`}
+                    >
+                      <View
+                        style={[
+                          styles.playerHorizontalAvatarWrap,
+                          isCurrentUser &&
+                            styles.playerHorizontalAvatarWrapCurrent,
+                        ]}
+                      >
+                        {player.avatarUrl ? (
+                          <Image
+                            source={{
+                              uri: player.avatarUrl,
+                            }}
+                            style={styles.playerHorizontalAvatar}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.playerHorizontalAvatarFallback}>
+                            <Text style={styles.playerHorizontalInitial}>
+                              {player.fullName.trim().charAt(0).toUpperCase() ||
+                                "P"}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <Text
+                        style={styles.playerHorizontalName}
+                        numberOfLines={1}
+                      >
+                        {firstName}
+                      </Text>
+
+                      {isCurrentUser ? (
+                        <View style={styles.playerHorizontalYouBadge}>
+                          <Text style={styles.playerHorizontalYouText}>
+                            You
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={styles.playerHorizontalBadgeSpacer} />
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : (
+              <View style={styles.playersEmptyCard}>
+                <View style={styles.playersEmptyIcon}>
+                  <Ionicons
+                    name="people-outline"
+                    size={22}
+                    color={COLORS.primary}
+                  />
+                </View>
+
+                <View style={styles.playersEmptyText}>
+                  <Text style={styles.playersEmptyTitle}>
+                    Be the first player
+                  </Text>
+
+                  <Text style={styles.playersEmptyDescription}>
+                    Confirmed players will appear here.
+                  </Text>
+                </View>
+              </View>
+            )}
+          </View>
+
           {!!location && (
             <>
               <View style={styles.divider} />
@@ -751,128 +1268,110 @@ export default function GameDetailsScreen() {
               </View>
             </>
           )}
-
-          <View style={styles.divider} />
-
           {/* PAYMENT */}
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{t("gameDetails.payment")}</Text>
+          {!isPaymentSubmitted && !isBookingConfirmed && (
+            <>
+              <View style={styles.divider} />
 
-            {isPayAtVenue ? (
-              <View style={styles.paymentCard}>
-                <View style={styles.paymentTopRow}>
-                  <View style={styles.paymentIcon}>
-                    <Ionicons
-                      name="location-outline"
-                      size={23}
-                      color={COLORS.primary}
-                    />
-                  </View>
-
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.payAtVenueTitle}>
-                      {t("gameDetails.payAtVenue")}
-                    </Text>
-                    <Text style={styles.paymentPrice}>{game.price} ETB</Text>
-                  </View>
-                </View>
-
-                <Text style={styles.paymentDescription}>
-                  {t("gameDetails.paymentAtVenue")}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>
+                  {t("gameDetails.payment")}
                 </Text>
-              </View>
-            ) : isPaymentConfirmed ? (
-              <View style={styles.paymentConfirmedCard}>
-                <View style={styles.paymentConfirmedTop}>
-                  <View style={styles.paymentConfirmedIcon}>
-                    <Ionicons name="checkmark" size={22} color="#F7F8FA" />
+
+                {isPayAtVenue ? (
+                  <View style={styles.paymentCard}>
+                    <View style={styles.paymentTopRow}>
+                      <View style={styles.paymentIcon}>
+                        <Ionicons
+                          name="location-outline"
+                          size={23}
+                          color={COLORS.primary}
+                        />
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.payAtVenueTitle}>
+                          {t("gameDetails.payAtVenue")}
+                        </Text>
+
+                        <Text style={styles.paymentPrice}>
+                          {game.price} ETB
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.paymentDescription}>
+                      {t("gameDetails.paymentAtVenue")}
+                    </Text>
                   </View>
+                ) : isPaymentConfirmed ? (
+                  <View style={styles.paymentConfirmedCard}>
+                    <View style={styles.paymentConfirmedTop}>
+                      <View style={styles.paymentConfirmedIcon}>
+                        <Ionicons name="checkmark" size={22} color="#F7F8FA" />
+                      </View>
 
-                  <View style={styles.paymentConfirmedHeading}>
-                    <Text style={styles.paymentConfirmedTitle}>
-                      {t("gameDetails.paymentConfirmed")}
-                    </Text>
+                      <View style={styles.paymentConfirmedHeading}>
+                        <Text style={styles.paymentConfirmedTitle}>
+                          {t("gameDetails.paymentConfirmed")}
+                        </Text>
 
-                    <Text style={styles.paymentConfirmedPrice}>
-                      {isFree ? t("gameDetails.free") : `${game.price} ETB`}
-                    </Text>
+                        <Text style={styles.paymentConfirmedPrice}>
+                          {isFree ? t("gameDetails.free") : `${game.price} ETB`}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {!isFree && bookingState.paymentProvider && (
+                      <View style={styles.paymentMethodRow}>
+                        <Text style={styles.paymentMethodLabel}>
+                          {t("gameDetails.paymentMethod")}
+                        </Text>
+
+                        <Text style={styles.paymentMethodValue}>
+                          {bookingState.paymentProvider}
+                        </Text>
+                      </View>
+                    )}
                   </View>
-                </View>
+                ) : (
+                  <View style={styles.paymentCard}>
+                    <View style={styles.paymentTopRow}>
+                      <View style={styles.paymentIcon}>
+                        <Ionicons
+                          name={
+                            isFree
+                              ? "checkmark-circle-outline"
+                              : "wallet-outline"
+                          }
+                          size={23}
+                          color={COLORS.primary}
+                        />
+                      </View>
 
-                {!isFree && bookingState.paymentProvider && (
-                  <View style={styles.paymentMethodRow}>
-                    <Text style={styles.paymentMethodLabel}>
-                      {t("gameDetails.paymentMethod")}
-                    </Text>
+                      <Text style={styles.paymentPrice}>
+                        {isFree ? t("gameDetails.free") : `${game.price} ETB`}
+                      </Text>
+                    </View>
 
-                    <Text style={styles.paymentMethodValue}>
-                      {bookingState.paymentProvider}
+                    <Text style={styles.paymentDescription}>
+                      {isFree
+                        ? t("gameDetails.noPaymentRequired")
+                        : game.payment_method === "venue"
+                          ? t("gameDetails.paymentAtVenue")
+                          : game.payment_method === "organizer"
+                            ? t("gameDetails.organizerPaymentInstructions")
+                            : t("gameDetails.paymentDetailsAfterReservation")}
                     </Text>
                   </View>
                 )}
               </View>
-            ) : isPaymentSubmitted ? (
-              <View style={styles.paymentSubmittedCard}>
-                <View style={styles.paymentSubmittedTop}>
-                  <View style={styles.paymentSubmittedIcon}>
-                    <Ionicons name="checkmark" size={22} color="#F7F8FA" />
-                  </View>
-
-                  <View style={styles.paymentSubmittedHeading}>
-                    <Text style={styles.paymentSubmittedTitle}>
-                      {t("gameCard.paymentSubmittedTitle")}
-                    </Text>
-
-                    <Text style={styles.paymentSubmittedPrice}>
-                      {game.price} ETB
-                      {bookingState.paymentProvider
-                        ? ` • ${bookingState.paymentProvider}`
-                        : ""}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.paymentSubmittedStatus}>
-                  <Ionicons name="time-outline" size={19} color="#9A6700" />
-
-                  <Text style={styles.paymentSubmittedStatusText}>
-                    {t("gameCard.waitingForOrganizer")}
-                  </Text>
-                </View>
-              </View>
-            ) : (
-              <View style={styles.paymentCard}>
-                <View style={styles.paymentTopRow}>
-                  <View style={styles.paymentIcon}>
-                    <Ionicons
-                      name={
-                        isFree ? "checkmark-circle-outline" : "wallet-outline"
-                      }
-                      size={23}
-                      color={COLORS.primary}
-                    />
-                  </View>
-
-                  <Text style={styles.paymentPrice}>
-                    {isFree ? t("gameDetails.free") : `${game.price} ETB`}
-                  </Text>
-                </View>
-
-                <Text style={styles.paymentDescription}>
-                  {isFree
-                    ? t("gameDetails.noPaymentRequired")
-                    : game.payment_method === "venue"
-                      ? t("gameDetails.paymentAtVenue")
-                      : game.payment_method === "organizer"
-                        ? t("gameDetails.organizerPaymentInstructions")
-                        : t("gameDetails.paymentDetailsAfterReservation")}
-                </Text>
-              </View>
-            )}
-          </View>
+            </>
+          )}
 
           <View style={styles.bottomSpace} />
+
           {isBookingConfirmed && (
             <>
               <View style={styles.divider} />
@@ -959,6 +1458,23 @@ export default function GameDetailsScreen() {
                     </Text>
                   </View>
                 </View>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.manageBookingAction,
+                    pressed && styles.manageBookingActionPressed,
+                  ]}
+                  onPress={openManageBooking}
+                  accessibilityRole="button"
+                  accessibilityLabel="Manage booking"
+                >
+                  <Text style={styles.manageBookingText}>Manage booking</Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={COLORS.textSecondary}
+                  />
+                </Pressable>
               </View>
             </>
           )}
@@ -966,6 +1482,26 @@ export default function GameDetailsScreen() {
       </ScrollView>
 
       {/* KEEP EXISTING BOOKING / PAYMENT LOGIC */}
+      {/* STICKY BACK BUTTON */}
+
+      <SafeAreaView
+        edges={["top"]}
+        style={styles.stickyBackContainer}
+        pointerEvents="box-none"
+      >
+        <Pressable
+          style={({ pressed }) => [
+            styles.heroButton,
+            pressed && styles.heroButtonPressed,
+          ]}
+          onPress={goBack}
+          hitSlop={10}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Ionicons name="arrow-back" size={23} color="#F7F8FA" />
+        </Pressable>
+      </SafeAreaView>
 
       <GameBookingAction
         gameId={game.id}
@@ -990,7 +1526,7 @@ export default function GameDetailsScreen() {
               return currentGame;
             }
 
-            return {
+            const nextGame: GameDetails = {
               ...currentGame,
               spots_left: nextSpotsLeft,
               status:
@@ -1000,9 +1536,280 @@ export default function GameDetailsScreen() {
                     ? "available"
                     : currentGame.status,
             };
+
+            /*
+             * Keep the cached copy synchronized with booking
+             * changes so reopening this game does not briefly
+             * show the old number of available spots.
+             */
+            gameDetailsCache[String(currentGame.id)] = nextGame;
+
+            return nextGame;
           });
         }}
       />
+
+      <Modal
+        visible={manageBookingVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeManageBooking}
+      >
+        <View style={styles.manageModalOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={closeManageBooking}
+            disabled={cancellingBooking}
+          />
+
+          <View style={styles.manageModalCard}>
+            <View style={styles.manageModalIcon}>
+              <Ionicons
+                name="calendar-outline"
+                size={24}
+                color={COLORS.primary}
+              />
+            </View>
+
+            <Text style={styles.manageModalTitle}>Manage booking</Text>
+
+            <Text style={styles.manageModalDescription}>
+              You have {currentBookingQuantity}{" "}
+              {currentBookingQuantity === 1 ? "spot" : "spots"} reserved.
+            </Text>
+
+            {!!cancelBookingError && (
+              <Text style={styles.manageModalError}>{cancelBookingError}</Text>
+            )}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.changeSpotsButton,
+                pressed && styles.changeSpotsButtonPressed,
+              ]}
+              onPress={openChangeQuantity}
+              disabled={cancellingBooking}
+            >
+              <View style={styles.changeSpotsButtonLeft}>
+                <Ionicons
+                  name="people-outline"
+                  size={20}
+                  color={COLORS.primary}
+                />
+
+                <Text style={styles.changeSpotsButtonText}>
+                  Change number of spots
+                </Text>
+              </View>
+
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={COLORS.textSecondary}
+              />
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.keepBookingButton,
+                pressed && styles.keepBookingButtonPressed,
+              ]}
+              onPress={closeManageBooking}
+              disabled={cancellingBooking}
+            >
+              <Text style={styles.keepBookingButtonText}>Keep booking</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.cancelBookingButton,
+                pressed && styles.cancelBookingButtonPressed,
+              ]}
+              onPress={cancelCurrentBooking}
+              disabled={cancellingBooking}
+            >
+              {cancellingBooking ? (
+                <ActivityIndicator size="small" color={COLORS.danger} />
+              ) : (
+                <Text style={styles.cancelBookingButtonText}>
+                  Cancel booking
+                </Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={quantityModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeQuantityModal}
+      >
+        <View style={styles.manageModalOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={closeQuantityModal}
+            disabled={updatingQuantity}
+          />
+
+          <View style={styles.manageModalCard}>
+            <View style={styles.manageModalIcon}>
+              <Ionicons
+                name="people-outline"
+                size={24}
+                color={COLORS.primary}
+              />
+            </View>
+
+            <Text style={styles.manageModalTitle}>Change number of spots</Text>
+
+            <Text style={styles.manageModalDescription}>
+              You currently have {currentBookingQuantity}{" "}
+              {currentBookingQuantity === 1 ? "spot" : "spots"} reserved.
+            </Text>
+
+            <View style={styles.quantityPicker}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quantityButton,
+                  selectedBookingQuantity <= 1 && styles.quantityButtonDisabled,
+                  pressed &&
+                    selectedBookingQuantity > 1 &&
+                    styles.quantityButtonPressed,
+                ]}
+                onPress={() =>
+                  setSelectedBookingQuantity((current) =>
+                    Math.max(1, current - 1),
+                  )
+                }
+                disabled={updatingQuantity || selectedBookingQuantity <= 1}
+              >
+                <Ionicons
+                  name="remove"
+                  size={24}
+                  color={
+                    selectedBookingQuantity <= 1
+                      ? COLORS.textMuted
+                      : COLORS.text
+                  }
+                />
+              </Pressable>
+
+              <View style={styles.quantityValue}>
+                <Text style={styles.quantityNumber}>
+                  {selectedBookingQuantity}
+                </Text>
+
+                <Text style={styles.quantityLabel}>
+                  {selectedBookingQuantity === 1 ? "spot" : "spots"}
+                </Text>
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.quantityButton,
+                  selectedBookingQuantity >=
+                    currentBookingQuantity + Number(game.spots_left ?? 0) &&
+                    styles.quantityButtonDisabled,
+                  pressed &&
+                    selectedBookingQuantity <
+                      currentBookingQuantity + Number(game.spots_left ?? 0) &&
+                    styles.quantityButtonPressed,
+                ]}
+                onPress={() =>
+                  setSelectedBookingQuantity((current) =>
+                    Math.min(
+                      currentBookingQuantity + Number(game.spots_left ?? 0),
+                      current + 1,
+                    ),
+                  )
+                }
+                disabled={
+                  updatingQuantity ||
+                  selectedBookingQuantity >=
+                    currentBookingQuantity + Number(game.spots_left ?? 0)
+                }
+              >
+                <Ionicons
+                  name="add"
+                  size={24}
+                  color={
+                    selectedBookingQuantity >=
+                    currentBookingQuantity + Number(game.spots_left ?? 0)
+                      ? COLORS.textMuted
+                      : COLORS.text
+                  }
+                />
+              </Pressable>
+            </View>
+
+            {selectedBookingQuantity > currentBookingQuantity && (
+              <Text style={styles.quantityHint}>
+                You're adding {selectedBookingQuantity - currentBookingQuantity}{" "}
+                {selectedBookingQuantity - currentBookingQuantity === 1
+                  ? "spot"
+                  : "spots"}{" "}
+                to your booking.
+              </Text>
+            )}
+
+            {selectedBookingQuantity < currentBookingQuantity && (
+              <Text style={styles.quantityHint}>
+                You're releasing{" "}
+                {currentBookingQuantity - selectedBookingQuantity}{" "}
+                {currentBookingQuantity - selectedBookingQuantity === 1
+                  ? "spot"
+                  : "spots"}{" "}
+                for other players.
+              </Text>
+            )}
+
+            {!!quantityUpdateError && (
+              <Text style={styles.manageModalError}>{quantityUpdateError}</Text>
+            )}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.keepBookingButton,
+                selectedBookingQuantity === currentBookingQuantity &&
+                  styles.updateQuantityButtonDisabled,
+                pressed &&
+                  selectedBookingQuantity !== currentBookingQuantity &&
+                  styles.keepBookingButtonPressed,
+              ]}
+              onPress={updateBookingQuantity}
+              disabled={
+                updatingQuantity ||
+                selectedBookingQuantity === currentBookingQuantity
+              }
+            >
+              {updatingQuantity ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <Text style={styles.keepBookingButtonText}>
+                  Update to {selectedBookingQuantity}{" "}
+                  {selectedBookingQuantity === 1 ? "spot" : "spots"}
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={styles.quantityBackButton}
+              onPress={() => {
+                if (updatingQuantity) return;
+
+                setQuantityModalVisible(false);
+                setSelectedBookingQuantity(currentBookingQuantity);
+                setQuantityUpdateError(null);
+                setManageBookingVisible(true);
+              }}
+              disabled={updatingQuantity}
+            >
+              <Text style={styles.quantityBackButtonText}>Go back</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1040,7 +1847,303 @@ function QuickDetail({ icon, value, label, danger = false }: QuickDetailProps) {
 }
 
 const styles = StyleSheet.create({
-  
+  changeSpotsButton: {
+    width: "100%",
+    minHeight: 54,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surfaceAlt,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+
+  changeSpotsButtonPressed: {
+    opacity: 0.72,
+  },
+
+  changeSpotsButtonLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
+  changeSpotsButtonText: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
+  quantityPicker: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 24,
+    marginBottom: 18,
+  },
+
+  quantityButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 1,
+    borderColor: COLORS.borderStrong,
+    backgroundColor: COLORS.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  quantityButtonPressed: {
+    backgroundColor: COLORS.surfaceAlt,
+    transform: [{ scale: 0.96 }],
+  },
+
+  quantityButtonDisabled: {
+    opacity: 0.35,
+  },
+
+  quantityValue: {
+    minWidth: 74,
+    alignItems: "center",
+  },
+
+  quantityNumber: {
+    color: COLORS.text,
+    fontSize: 32,
+    lineHeight: 38,
+    fontWeight: "900",
+  },
+
+  quantityLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 1,
+  },
+
+  quantityHint: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+
+  updateQuantityButtonDisabled: {
+    opacity: 0.45,
+  },
+
+  quantityBackButton: {
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    marginTop: 6,
+  },
+
+  quantityBackButtonText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  manageBookingAction: {
+    marginTop: 24,
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+
+  manageBookingActionPressed: {
+    opacity: 0.6,
+  },
+
+  manageBookingText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  manageModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+
+  manageModalCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 24,
+    backgroundColor: COLORS.surface,
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 22,
+    alignItems: "center",
+  },
+
+  manageModalIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primarySoft,
+    marginBottom: 14,
+  },
+
+  manageModalTitle: {
+    color: COLORS.text,
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  manageModalDescription: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: "center",
+    marginTop: 8,
+    marginBottom: 20,
+  },
+
+  manageModalError: {
+    width: "100%",
+    color: COLORS.danger,
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+    marginBottom: 12,
+  },
+
+  keepBookingButton: {
+    width: "100%",
+    minHeight: 50,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.primary,
+  },
+
+  keepBookingButtonPressed: {
+    opacity: 0.82,
+  },
+
+  keepBookingButtonText: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+
+  cancelBookingButton: {
+    minHeight: 46,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 8,
+  },
+
+  cancelBookingButtonPressed: {
+    opacity: 0.6,
+  },
+
+  cancelBookingButtonText: {
+    color: COLORS.danger,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
+  playersHorizontalList: {
+    alignItems: "flex-start",
+    gap: 16,
+    paddingRight: 4,
+  },
+
+  playerHorizontalItem: {
+    width: 66,
+    alignItems: "center",
+  },
+
+  playerHorizontalItemPressed: {
+    opacity: 0.65,
+    transform: [{ scale: 0.96 }],
+  },
+
+  playerHorizontalAvatarWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    padding: 2,
+    borderWidth: 2,
+    borderColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  playerHorizontalAvatarWrapCurrent: {
+    borderColor: COLORS.primary,
+  },
+
+  playerHorizontalAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#F0F5F3",
+  },
+
+  playerHorizontalAvatarFallback: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E7F8F1",
+  },
+
+  playerHorizontalInitial: {
+    color: COLORS.primary,
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  playerHorizontalName: {
+    width: "100%",
+    marginTop: 6,
+    color: "#14201B",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+
+  playerHorizontalYouBadge: {
+    marginTop: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: "#E7F8F1",
+  },
+
+  playerHorizontalYouText: {
+    color: COLORS.primary,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "900",
+  },
+
+  playerHorizontalBadgeSpacer: {
+    height: 17,
+    marginTop: 3,
+  },
+
   loadingSafeArea: {
     flex: 1,
     backgroundColor: "#F7F8FA",
@@ -1059,6 +2162,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 680,
     alignSelf: "center",
+    paddingBottom: 0,
   },
 
   centerState: {
@@ -1122,7 +2226,7 @@ const styles = StyleSheet.create({
   hero: {
     position: "relative",
     width: "100%",
-    height: 280,
+    height: 160,
     backgroundColor: "#B58B66",
     overflow: "hidden",
   },
@@ -1130,12 +2234,9 @@ const styles = StyleSheet.create({
   sheet: {
     position: "relative",
     marginTop: -24,
-
     backgroundColor: "#F7F8FA",
-
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-
     overflow: "hidden",
   },
 
@@ -1171,14 +2272,10 @@ const styles = StyleSheet.create({
   scheduleCard: {
     marginHorizontal: 20,
     marginBottom: 12,
-
     paddingHorizontal: 14,
     paddingVertical: 12,
-
     borderRadius: 15,
-
     backgroundColor: "#FFFFFF",
-
     borderWidth: 1,
     borderColor: "#DDE6E2",
   },
@@ -1193,10 +2290,8 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-
     alignItems: "center",
     justifyContent: "center",
-
     backgroundColor: "#F0F5F3",
   },
 
@@ -1220,16 +2315,11 @@ const styles = StyleSheet.create({
 
   quickDetails: {
     flexDirection: "row",
-
     marginHorizontal: 20,
     marginBottom: 17,
-
     paddingVertical: 13,
-
     borderRadius: 16,
-
     backgroundColor: "#F7F8FA",
-
     borderWidth: 1,
     borderColor: "#DDE6E2",
   },
@@ -1250,10 +2340,8 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 11,
-
     alignItems: "center",
     justifyContent: "center",
-
     backgroundColor: "#F0F5F3",
     marginBottom: 6,
   },
@@ -1316,11 +2404,18 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-
     flexDirection: "row",
     justifyContent: "space-between",
-
     paddingHorizontal: 18,
+    paddingTop: 8,
+  },
+
+  stickyBackContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    zIndex: 100,
+    paddingLeft: 18,
     paddingTop: 8,
   },
 
@@ -1328,12 +2423,9 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-
     alignItems: "center",
     justifyContent: "center",
-
     backgroundColor: "rgba(5, 16, 24, 0.72)",
-
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.18)",
   },
@@ -1346,13 +2438,9 @@ const styles = StyleSheet.create({
   organizerCard: {
     flexDirection: "row",
     alignItems: "center",
-
     padding: 14,
-
     borderRadius: 16,
-
     backgroundColor: "#FFFFFF",
-
     borderWidth: 1,
     borderColor: "#DDE6E2",
   },
@@ -1361,9 +2449,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-
     backgroundColor: "#F0F5F3",
-
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1389,11 +2475,161 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-
     backgroundColor: "#F0F5F3",
-
     alignItems: "center",
     justifyContent: "center",
+  },
+
+  playersHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 12,
+  },
+
+  playersSectionTitle: {
+    marginBottom: 0,
+  },
+
+  playersCountBadge: {
+    backgroundColor: "#E7F8F1",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+
+  playersCountText: {
+    color: COLORS.primary,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+
+  playersCard: {
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#DDE6E2",
+  },
+
+  playerRow: {
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+
+  playerRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#EDF1EF",
+  },
+
+  playerAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "#F0F5F3",
+  },
+
+  playerAvatarFallback: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E7F8F1",
+  },
+
+  playerInitial: {
+    color: COLORS.primary,
+    fontSize: 17,
+    fontWeight: "900",
+  },
+
+  playerText: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 12,
+    marginRight: 10,
+  },
+
+  playerNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    minWidth: 0,
+  },
+
+  playerName: {
+    flexShrink: 1,
+    color: "#14201B",
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+
+  playerStatus: {
+    color: "#66766F",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+
+  youBadge: {
+    flexShrink: 0,
+    backgroundColor: "#E7F8F1",
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+
+  youBadgeText: {
+    color: COLORS.primary,
+    fontSize: 10,
+    lineHeight: 14,
+    fontWeight: "900",
+  },
+
+  playersEmptyCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#DDE6E2",
+  },
+
+  playersEmptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F0F5F3",
+  },
+
+  playersEmptyText: {
+    flex: 1,
+  },
+
+  playersEmptyTitle: {
+    color: "#14201B",
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "800",
+  },
+
+  playersEmptyDescription: {
+    color: "#66766F",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
   },
 
   /* LOCATION */
@@ -1401,13 +2637,9 @@ const styles = StyleSheet.create({
   locationCard: {
     flexDirection: "row",
     alignItems: "center",
-
     padding: 14,
-
     borderRadius: 16,
-
     backgroundColor: "#FFFFFF",
-
     borderWidth: 1,
     borderColor: "#DDE6E2",
   },
@@ -1420,9 +2652,7 @@ const styles = StyleSheet.create({
     width: 46,
     height: 46,
     borderRadius: 14,
-
     backgroundColor: "#F0F5F3",
-
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1457,11 +2687,8 @@ const styles = StyleSheet.create({
 
   paymentCard: {
     padding: 16,
-
     borderRadius: 16,
-
     backgroundColor: "#FFFFFF",
-
     borderWidth: 1,
     borderColor: "#DDE6E2",
   },
@@ -1476,9 +2703,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 13,
-
     backgroundColor: "#F0F5F3",
-
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1507,6 +2732,7 @@ const styles = StyleSheet.create({
   bottomSpace: {
     height: 28,
   },
+
   paymentSubmittedCard: {
     paddingHorizontal: 16,
     paddingVertical: 15,
@@ -1710,5 +2936,246 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     marginTop: 3,
+  },
+
+  bookingStatusBadge: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#FFF7E6",
+  },
+
+  bookingStatusBadgeConfirmed: {
+    backgroundColor: "#E7F8F1",
+  },
+
+  bookingStatusBadgeTextConfirmed: {
+    color: COLORS.primary,
+  },
+
+  bookingStatusBadgeText: {
+    color: "#B76E00",
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+
+  playerProfileBackdrop: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(8, 18, 14, 0.42)",
+  },
+
+  playerProfileSheet: {
+    width: "100%",
+    maxWidth: 680,
+    alignSelf: "center",
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 34,
+  },
+
+  playerProfileHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: "#DDE6E2",
+    alignSelf: "center",
+    marginBottom: 5,
+  },
+
+  playerProfileClose: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "flex-end",
+    backgroundColor: "#F0F5F3",
+  },
+
+  playerProfileClosePressed: {
+    opacity: 0.65,
+    transform: [{ scale: 0.95 }],
+  },
+
+  playerProfileIdentity: {
+    alignItems: "center",
+    paddingTop: 4,
+    paddingBottom: 22,
+  },
+
+  playerProfileAvatarWrap: {
+    position: "relative",
+    width: 94,
+    height: 94,
+  },
+
+  playerProfileAvatar: {
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    backgroundColor: "#F0F5F3",
+  },
+
+  playerProfileAvatarFallback: {
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+    backgroundColor: "#E7F8F1",
+  },
+
+  playerProfileInitial: {
+    color: COLORS.primary,
+    fontSize: 32,
+    fontWeight: "900",
+  },
+
+  playerProfileFootballBadge: {
+    position: "absolute",
+    right: -1,
+    bottom: 2,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: COLORS.primary,
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  playerProfileNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    marginTop: 14,
+    paddingHorizontal: 20,
+  },
+
+  playerProfileName: {
+    flexShrink: 1,
+    color: "#14201B",
+    fontSize: 23,
+    lineHeight: 28,
+    fontWeight: "900",
+    letterSpacing: -0.4,
+    textAlign: "center",
+  },
+
+  playerProfileYouBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "#E7F8F1",
+  },
+
+  playerProfileYouText: {
+    color: COLORS.primary,
+    fontSize: 10,
+    fontWeight: "900",
+  },
+
+  playerProfileRole: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+
+  playerProfileLoading: {
+    minHeight: 100,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  playerProfileLoadingText: {
+    color: "#66766F",
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 9,
+  },
+
+  playerProfileMessage: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    minHeight: 70,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: "#F7F8FA",
+    borderWidth: 1,
+    borderColor: "#DDE6E2",
+  },
+
+  playerProfileMessageText: {
+    flex: 1,
+    color: "#66766F",
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "600",
+  },
+
+  playerProfileDetails: {
+    overflow: "hidden",
+    borderRadius: 18,
+    backgroundColor: "#F7F8FA",
+    borderWidth: 1,
+    borderColor: "#DDE6E2",
+  },
+
+  playerProfileDetailRow: {
+    minHeight: 70,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 15,
+  },
+
+  playerProfileDetailIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E7F8F1",
+  },
+
+  playerProfileDetailText: {
+    flex: 1,
+    marginLeft: 12,
+  },
+
+  playerProfileDetailLabel: {
+    color: "#66766F",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+
+  playerProfileDetailValue: {
+    color: "#14201B",
+    fontSize: 15,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+
+  playerProfileDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#DDE6E2",
+    marginLeft: 67,
   },
 });

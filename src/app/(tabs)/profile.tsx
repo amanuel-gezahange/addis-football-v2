@@ -18,27 +18,38 @@ import { COLORS } from "../../constants/colors";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { supabase } from "../../lib/supabase";
 
+type ProfileCache = {
+  fullName: string;
+  skillLevel: string;
+  role: string;
+  avatarUrl: string | null;
+};
+
+const profileCache: Record<string, ProfileCache> = {};
+
 export default function ProfileScreen() {
   const { width } = useWindowDimensions();
   const isDesktopWeb = Platform.OS === "web" && width >= 900;
 
   const [fullName, setFullName] = useState("");
+
   const [skillLevel, setSkillLevel] = useState("");
+
   const [role, setRole] = useState("player");
+
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
 
   const { t } = useLanguage();
 
   useFocusEffect(
     useCallback(() => {
-      loadProfile();
+      void loadProfile();
     }, []),
   );
 
   async function loadProfile() {
-    setLoading(true);
-
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -47,8 +58,24 @@ export default function ProfileScreen() {
 
     if (!user) {
       console.log("Profile user error: No user");
+      setFullName("");
+      setSkillLevel("");
+      setRole("player");
+      setAvatarUrl(null);
       setLoading(false);
       return;
+    }
+
+    const cachedProfile = profileCache[user.id];
+
+    if (cachedProfile) {
+      setFullName(cachedProfile.fullName);
+      setSkillLevel(cachedProfile.skillLevel);
+      setRole(cachedProfile.role);
+      setAvatarUrl(cachedProfile.avatarUrl);
+      setLoading(false);
+    } else {
+      setLoading(true);
     }
 
     const { data, error } = await supabase
@@ -64,17 +91,25 @@ export default function ProfileScreen() {
     }
 
     if (data) {
-      setFullName(data.full_name || "");
-      setSkillLevel(data.skill_level || "");
-      setRole(data.role || "player");
-      setAvatarUrl(data.avatar_url || null);
+      const nextProfile: ProfileCache = {
+        fullName: data.full_name || "",
+        skillLevel: data.skill_level || "",
+        role: data.role || "player",
+        avatarUrl: data.avatar_url || null,
+      };
+
+      profileCache[user.id] = nextProfile;
+
+      setFullName(nextProfile.fullName);
+      setSkillLevel(nextProfile.skillLevel);
+      setRole(nextProfile.role);
+      setAvatarUrl(nextProfile.avatarUrl);
     }
 
     setLoading(false);
   }
 
-  const canManageGames =
-    role === "admin" || role === "organizer";
+  const canManageGames = role === "admin" || role === "organizer";
 
   function skillLabel(level: string) {
     if (level === "Beginner") {
@@ -114,29 +149,18 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView
-        style={styles.safeArea}
-        edges={["top"]}
-      >
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator
-            size="large"
-            color={COLORS.primary}
-          />
+          <ActivityIndicator size="large" color={COLORS.primary} />
 
-          <Text style={styles.loadingText}>
-            {t("common.loading")}
-          </Text>
+          <Text style={styles.loadingText}>{t("common.loading")}</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={["top"]}
-    >
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={[
@@ -147,9 +171,7 @@ export default function ProfileScreen() {
       >
         {/* HEADER */}
         <View style={styles.pageHeader}>
-          <Text style={styles.title}>
-            {t("profile.title")}
-          </Text>
+          <Text style={styles.title}>{t("profile.title")}</Text>
         </View>
 
         {/* PLAYER IDENTITY */}
@@ -157,38 +179,22 @@ export default function ProfileScreen() {
           <View style={styles.avatarWrap}>
             <View style={styles.avatar}>
               {avatarUrl ? (
-                <Image
-                  source={{ uri: avatarUrl }}
-                  style={styles.avatarImage}
-                />
+                <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
               ) : (
-                <Ionicons
-                  name="person"
-                  size={45}
-                  color={COLORS.primary}
-                />
+                <Ionicons name="person" size={45} color={COLORS.primary} />
               )}
             </View>
 
             <View style={styles.avatarBadge}>
-              <Ionicons
-                name="football"
-                size={14}
-                color={COLORS.white}
-              />
+              <Ionicons name="football" size={14} color={COLORS.white} />
             </View>
           </View>
 
-          <Text
-            style={styles.playerName}
-            numberOfLines={1}
-          >
+          <Text style={styles.playerName} numberOfLines={1}>
             {displayName()}
           </Text>
 
-          <Text style={styles.playerRole}>
-            {profileRoleLabel()}
-          </Text>
+          <Text style={styles.playerRole}>{profileRoleLabel()}</Text>
         </View>
 
         {/* SKILL LEVEL */}
@@ -197,9 +203,7 @@ export default function ProfileScreen() {
             styles.skillCard,
             pressed && styles.rowPressed,
           ]}
-          onPress={() =>
-            router.push("/edit-profile")
-          }
+          onPress={() => router.push("/edit-profile")}
         >
           <View style={styles.rowLeft}>
             <View style={styles.rowIcon}>
@@ -211,14 +215,10 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>
-                {t("profile.skillLevel")}
-              </Text>
+              <Text style={styles.rowTitle}>{t("profile.skillLevel")}</Text>
 
               <Text style={styles.rowSubtitle}>
-                {skillLevel
-                  ? skillLabel(skillLevel)
-                  : t("profile.notSet")}
+                {skillLevel ? skillLabel(skillLevel) : t("profile.notSet")}
               </Text>
             </View>
           </View>
@@ -235,9 +235,7 @@ export default function ProfileScreen() {
           <MenuRow
             icon="person-outline"
             title={t("profile.editProfile")}
-            onPress={() =>
-              router.push("/edit-profile")
-            }
+            onPress={() => router.push("/edit-profile")}
           />
 
           <View style={styles.rowDivider} />
@@ -245,18 +243,14 @@ export default function ProfileScreen() {
           <MenuRow
             icon="settings-outline"
             title={t("profile.settings")}
-            onPress={() =>
-              router.push("/settings")
-            }
+            onPress={() => router.push("/settings")}
           />
         </View>
 
         {/* ADMIN / ORGANIZER TOOLS */}
         {canManageGames && (
           <>
-            <Text style={styles.sectionTitle}>
-              {t("profile.adminTools")}
-            </Text>
+            <Text style={styles.sectionTitle}>{t("profile.adminTools")}</Text>
 
             <View style={styles.adminSection}>
               <View style={styles.adminHeader}>
@@ -273,12 +267,8 @@ export default function ProfileScreen() {
                     {t("profile.adminTools")}
                   </Text>
 
-                  <Text
-                    style={styles.adminSubtitle}
-                  >
-                    {t(
-                      "profile.adminToolsSubtitle",
-                    )}
+                  <Text style={styles.adminSubtitle}>
+                    {t("profile.adminToolsSubtitle")}
                   </Text>
                 </View>
               </View>
@@ -288,14 +278,8 @@ export default function ProfileScreen() {
               <AdminRow
                 icon="add-circle-outline"
                 title={t("profile.createGame")}
-                subtitle={t(
-                  "profile.createGameSubtitle",
-                )}
-                onPress={() =>
-                  router.push(
-                    "/admin/create-game",
-                  )
-                }
+                subtitle={t("profile.createGameSubtitle")}
+                onPress={() => router.push("/admin/create-game")}
               />
 
               <View style={styles.rowDivider} />
@@ -303,31 +287,17 @@ export default function ProfileScreen() {
               <AdminRow
                 icon="settings-outline"
                 title={t("profile.manageGames")}
-                subtitle={t(
-                  "profile.manageGamesSubtitle",
-                )}
-                onPress={() =>
-                  router.push(
-                    "/admin/manage-games",
-                  )
-                }
+                subtitle={t("profile.manageGamesSubtitle")}
+                onPress={() => router.push("/admin/manage-games")}
               />
 
               <View style={styles.rowDivider} />
 
               <AdminRow
                 icon="card-outline"
-                title={t(
-                  "profile.paymentRequests",
-                )}
-                subtitle={t(
-                  "profile.paymentRequestsSubtitle",
-                )}
-                onPress={() =>
-                  router.push(
-                    "/admin/payment-requests",
-                  )
-                }
+                title={t("profile.paymentRequests")}
+                subtitle={t("profile.paymentRequestsSubtitle")}
+                onPress={() => router.push("/admin/payment-requests")}
               />
             </View>
           </>
@@ -340,65 +310,38 @@ export default function ProfileScreen() {
 }
 
 type MenuRowProps = {
-  icon:
-    | "person-outline"
-    | "settings-outline";
+  icon: "person-outline" | "settings-outline";
   title: string;
   onPress: () => void;
 };
 
-function MenuRow({
-  icon,
-  title,
-  onPress,
-}: MenuRowProps) {
+function MenuRow({ icon, title, onPress }: MenuRowProps) {
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.menuRow,
-        pressed && styles.rowPressed,
-      ]}
+      style={({ pressed }) => [styles.menuRow, pressed && styles.rowPressed]}
       onPress={onPress}
     >
       <View style={styles.rowLeft}>
         <View style={styles.rowIcon}>
-          <Ionicons
-            name={icon}
-            size={20}
-            color={COLORS.primary}
-          />
+          <Ionicons name={icon} size={20} color={COLORS.primary} />
         </View>
 
-        <Text style={styles.menuRowTitle}>
-          {title}
-        </Text>
+        <Text style={styles.menuRowTitle}>{title}</Text>
       </View>
 
-      <Ionicons
-        name="chevron-forward"
-        size={20}
-        color={COLORS.textSecondary}
-      />
+      <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
     </Pressable>
   );
 }
 
 type AdminRowProps = {
-  icon:
-    | "add-circle-outline"
-    | "settings-outline"
-    | "card-outline";
+  icon: "add-circle-outline" | "settings-outline" | "card-outline";
   title: string;
   subtitle: string;
   onPress: () => void;
 };
 
-function AdminRow({
-  icon,
-  title,
-  subtitle,
-  onPress,
-}: AdminRowProps) {
+function AdminRow({ icon, title, subtitle, onPress }: AdminRowProps) {
   return (
     <Pressable
       style={({ pressed }) => [
@@ -408,30 +351,16 @@ function AdminRow({
       onPress={onPress}
     >
       <View style={styles.rowIcon}>
-        <Ionicons
-          name={icon}
-          size={20}
-          color={COLORS.primary}
-        />
+        <Ionicons name={icon} size={20} color={COLORS.primary} />
       </View>
 
       <View style={styles.rowText}>
-        <Text style={styles.adminButtonTitle}>
-          {title}
-        </Text>
+        <Text style={styles.adminButtonTitle}>{title}</Text>
 
-        <Text
-          style={styles.adminButtonSubtitle}
-        >
-          {subtitle}
-        </Text>
+        <Text style={styles.adminButtonSubtitle}>{subtitle}</Text>
       </View>
 
-      <Ionicons
-        name="chevron-forward"
-        size={20}
-        color={COLORS.textSecondary}
-      />
+      <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
     </Pressable>
   );
 }

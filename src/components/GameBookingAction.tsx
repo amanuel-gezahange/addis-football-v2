@@ -103,6 +103,7 @@ export default function GameBookingAction({
   const [spotsLeft, setSpotsLeft] = useState(Number(initialSpotsLeft ?? 0));
 
   const [quantityModalVisible, setQuantityModalVisible] = useState(false);
+  const [multiSpotConfirmVisible, setMultiSpotConfirmVisible] = useState(false);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [playerModalVisible, setPlayerModalVisible] = useState(false);
   const [friends, setFriends] = useState<any[]>([]);
@@ -280,13 +281,15 @@ export default function GameBookingAction({
       return;
     }
 
-    // A full game joins the waitlist immediately. A waitlist entry represents
-    // the signed-in player only, not an entire guest group.
+    // A full game joins the waitlist immediately. Waitlist is always one player.
     if (isFull) {
+      setSelectedQuantity(1);
+      setSelectedFriendIds([]);
       await handleNormalJoin(1);
       return;
     }
 
+    // Available games let the player choose how many spots to reserve.
     openQuantityPicker();
   }
 
@@ -299,7 +302,9 @@ export default function GameBookingAction({
   }
 
   async function loadFriendsForBooking() {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
     const { data: rels } = await supabase
       .from("friendships")
@@ -309,7 +314,10 @@ export default function GameBookingAction({
     const ids = (rels ?? []).map((r: any) =>
       r.requester_id === user.id ? r.addressee_id : r.requester_id,
     );
-    if (!ids.length) { setFriends([]); return; }
+    if (!ids.length) {
+      setFriends([]);
+      return;
+    }
     const { data } = await supabase
       .from("profiles")
       .select("id,full_name,avatar_url")
@@ -319,24 +327,65 @@ export default function GameBookingAction({
 
   async function handleQuantityContinue() {
     if (joining) return;
+
     setSelectedFriendIds([]);
-    await loadFriendsForBooking();
+
+    if (selectedQuantity > 1) {
+      setQuantityModalVisible(false);
+      setMultiSpotConfirmVisible(true);
+      return;
+    }
+
     setQuantityModalVisible(false);
-    setPlayerModalVisible(true);
+    await continueBookingWithQuantity();
+  }
+
+  async function continueBookingWithQuantity() {
+    if (
+      paymentDetails.payment_method === "free" ||
+      paymentDetails.payment_method === "venue" ||
+      !isPaidGame
+    ) {
+      await handleNormalJoin(selectedQuantity);
+      return;
+    }
+
+    if (isOrganizerPayment) {
+      openPaymentPicker();
+      return;
+    }
+
+    setPaymentMessage(t("gameCard.paymentMethodNotAvailable"));
+  }
+
+  async function confirmMultipleSpots() {
+    if (joining) return;
+
+    setMultiSpotConfirmVisible(false);
+    await continueBookingWithQuantity();
   }
 
   async function handlePlayersContinue() {
     const neededFriends = Math.max(0, selectedQuantity - 1);
     if (selectedFriendIds.length !== neededFriends) {
-      setPaymentMessage(`Choose ${neededFriends} ${neededFriends === 1 ? "friend" : "friends"} to fill these spots.`);
+      setPaymentMessage(
+        `Choose ${neededFriends} ${neededFriends === 1 ? "friend" : "friends"} to fill these spots.`,
+      );
       return;
     }
     setPlayerModalVisible(false);
-    if (paymentDetails.payment_method === "free" || paymentDetails.payment_method === "venue" || !isPaidGame) {
+    if (
+      paymentDetails.payment_method === "free" ||
+      paymentDetails.payment_method === "venue" ||
+      !isPaidGame
+    ) {
       await handleNormalJoin(selectedQuantity);
       return;
     }
-    if (isOrganizerPayment) { openPaymentPicker(); return; }
+    if (isOrganizerPayment) {
+      openPaymentPicker();
+      return;
+    }
     setPaymentMessage(t("gameCard.paymentMethodNotAvailable"));
   }
 
@@ -353,7 +402,10 @@ export default function GameBookingAction({
       .maybeSingle();
     if (!booking?.id) return;
     await supabase.from("booking_players").upsert(
-      selectedFriendIds.map((profileId) => ({ booking_id: booking.id, profile_id: profileId })),
+      selectedFriendIds.map((profileId) => ({
+        booking_id: booking.id,
+        profile_id: profileId,
+      })),
       { onConflict: "booking_id,profile_id" },
     );
   }
@@ -419,8 +471,27 @@ export default function GameBookingAction({
   function openPaymentPicker() {
     setPaymentMessage(null);
     setPaymentNumberCopied(false);
+
+    // The organizer's saved payment details are the source of truth.
+    // If a Telebirr number exists, go directly to Telebirr checkout.
+    // Do not show a redundant chooser with unavailable payment methods.
+    if (paymentDetails.payment_phone) {
+      setSelectedPaymentMethod("telebirr");
+      setPaymentModalVisible(true);
+      return;
+    }
+
+    // Otherwise use the configured bank account, if one exists.
+    if (paymentDetails.bank_account_number) {
+      setSelectedPaymentMethod(
+        paymentDetails.accepts_mobile_banking ? "cbe_mobile" : "cbe_birr",
+      );
+      setPaymentModalVisible(true);
+      return;
+    }
+
     setSelectedPaymentMethod(null);
-    setPaymentModalVisible(true);
+    setPaymentMessage(t("gameCard.paymentMethodNotAvailable"));
   }
 
   function selectPaymentMethod(method: Exclude<SelectedPaymentMethod, null>) {
@@ -557,7 +628,7 @@ export default function GameBookingAction({
 
   return (
     <>
-      {isCancelled ? (
+      {stateLoading ? null : isCancelled ? (
         <View style={styles.cancelledFooter}>
           <View style={styles.cancelledIcon}>
             <Ionicons name="close" size={18} color="#B42318" />
@@ -571,34 +642,7 @@ export default function GameBookingAction({
             </Text>
           </View>
         </View>
-      ) : isConfirmed ? (
-        <View style={styles.confirmedFooter}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.directionsButton,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={onDirectionsPress}
-            disabled={!onDirectionsPress}
-          >
-            <Ionicons name="navigate" size={20} color="#F7F8FA" />
-            <Text style={styles.directionsButtonText}>
-              {t("gameDetails.directionsToField")}
-            </Text>
-            <Ionicons name="arrow-forward" size={20} color="#F7F8FA" />
-          </Pressable>
-        </View>
-      ) : isPendingPayment && isPaymentSubmitted ? (
-        <View style={styles.pendingFooter}>
-          <Ionicons name="time-outline" size={20} color="#00B77A" />
-          <View style={styles.pendingFooterTextWrap}>
-            <Text style={styles.pendingFooterTitle}>Booking submitted</Text>
-            <Text style={styles.pendingFooterText}>
-              Payment pending organizer confirmation
-            </Text>
-          </View>
-        </View>
-      ) : (
+      ) : isConfirmed ? null : isPendingPayment && isPaymentSubmitted ? null : (
         <View style={styles.wrapper}>
           <View style={styles.footerInfo}>
             <Text style={styles.price}>
@@ -622,7 +666,9 @@ export default function GameBookingAction({
           >
             {isFull && !bookingStatus ? (
               <View style={[styles.actionButton, styles.waitlistButton]}>
-                <Text style={[styles.actionButtonText, styles.waitlistButtonText]}>
+                <Text
+                  style={[styles.actionButtonText, styles.waitlistButtonText]}
+                >
                   {getButtonText()}
                 </Text>
               </View>
@@ -636,7 +682,9 @@ export default function GameBookingAction({
                 {joining ? (
                   <ActivityIndicator size="small" color="#F7F8FA" />
                 ) : (
-                  <Text style={styles.gradientButtonText}>{getButtonText()}</Text>
+                  <Text style={styles.gradientButtonText}>
+                    {getButtonText()}
+                  </Text>
                 )}
               </LinearGradient>
             )}
@@ -683,7 +731,8 @@ export default function GameBookingAction({
                 <Pressable
                   style={[
                     styles.checkoutStepperButton,
-                    selectedQuantity <= 1 && styles.checkoutStepperButtonDisabled,
+                    selectedQuantity <= 1 &&
+                      styles.checkoutStepperButtonDisabled,
                   ]}
                   onPress={decreaseQuantity}
                   disabled={selectedQuantity <= 1}
@@ -761,37 +810,212 @@ export default function GameBookingAction({
         </View>
       </Modal>
 
+      {/* MULTIPLE SPOTS CONFIRMATION */}
+      <Modal
+        visible={multiSpotConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMultiSpotConfirmVisible(false)}
+      >
+        <View style={styles.multiSpotBackdrop}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setMultiSpotConfirmVisible(false)}
+          />
+
+          <View style={styles.multiSpotCard}>
+            <View style={styles.multiSpotIcon}>
+              <Ionicons name="people-outline" size={26} color="#00B77A" />
+            </View>
+
+            <Text style={styles.multiSpotTitle}>
+              Reserve {selectedQuantity} spots?
+            </Text>
+
+            <Text style={styles.multiSpotDescription}>
+              You're reserving {selectedQuantity} spots for this game. Please
+              make sure the other players are joining you, since these spots
+              won't be available to other players.
+            </Text>
+
+            <View style={styles.multiSpotSummary}>
+              <View>
+                <Text style={styles.multiSpotSummaryLabel}>
+                  {selectedQuantity} spots
+                </Text>
+                {numericPrice > 0 && (
+                  <Text style={styles.multiSpotSummaryCalculation}>
+                    {numericPrice} ETB × {selectedQuantity}
+                  </Text>
+                )}
+              </View>
+
+              <Text style={styles.multiSpotSummaryTotal}>
+                {numericPrice === 0 ? "Free" : `${totalAmount} ETB`}
+              </Text>
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.multiSpotConfirmPressable,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={confirmMultipleSpots}
+            >
+              <LinearGradient
+                colors={ACTION_GRADIENT}
+                start={ACTION_GRADIENT_START}
+                end={ACTION_GRADIENT_END}
+                style={styles.multiSpotConfirmButton}
+              >
+                <Text style={styles.gradientButtonText}>
+                  Confirm {selectedQuantity} spots
+                </Text>
+              </LinearGradient>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.multiSpotBackButton,
+                pressed && styles.multiSpotBackButtonPressed,
+              ]}
+              onPress={() => {
+                setMultiSpotConfirmVisible(false);
+                setQuantityModalVisible(true);
+              }}
+            >
+              <Text style={styles.multiSpotBackText}>Go back</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
       {/* SELECT PLAYERS */}
-      <Modal visible={playerModalVisible} transparent animationType="slide" onRequestClose={() => setPlayerModalVisible(false)}>
+      <Modal
+        visible={playerModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPlayerModalVisible(false)}
+      >
         <View style={styles.checkoutBackdrop}>
           <View style={styles.checkoutScreen}>
             <View style={styles.checkoutHeader}>
-              <Pressable style={styles.checkoutBackButton} onPress={() => { setPlayerModalVisible(false); setQuantityModalVisible(true); }}>
+              <Pressable
+                style={styles.checkoutBackButton}
+                onPress={() => {
+                  setPlayerModalVisible(false);
+                  setQuantityModalVisible(true);
+                }}
+              >
                 <Ionicons name="chevron-back" size={24} color="#14201B" />
               </Pressable>
             </View>
             <View style={styles.checkoutContent}>
-              <Text style={styles.checkoutTitle}>Select players ({selectedQuantity})</Text>
-              <Text style={styles.checkoutSubtitle}>Choose who will join this game.</Text>
+              <Text style={styles.checkoutTitle}>
+                Select players ({selectedQuantity})
+              </Text>
+              <Text style={styles.checkoutSubtitle}>
+                Choose who will join this game.
+              </Text>
               <View style={styles.playerSelectedCard}>
-                <View style={styles.playerAvatarFallback}><Ionicons name="person" size={18} color="#14201B" /></View>
-                <Text style={styles.playerName}>You</Text><View style={styles.youBadge}><Text style={styles.youBadgeText}>You</Text></View>
+                <View style={styles.playerAvatarFallback}>
+                  <Ionicons name="person" size={18} color="#14201B" />
+                </View>
+                <Text style={styles.playerName}>You</Text>
+                <View style={styles.youBadge}>
+                  <Text style={styles.youBadgeText}>You</Text>
+                </View>
               </View>
-              {selectedQuantity > 1 && <Text style={styles.playerSectionTitle}>Your friends · choose {selectedQuantity - 1}</Text>}
-              <ScrollView style={styles.friendPickerList} showsVerticalScrollIndicator={false}>
-                {friends.map((friend:any) => { const selected=selectedFriendIds.includes(friend.id); return (
-                  <Pressable key={friend.id} style={styles.friendPickerRow} onPress={() => setSelectedFriendIds(current => selected ? current.filter(id => id !== friend.id) : current.length < selectedQuantity - 1 ? [...current, friend.id] : current)}>
-                    {friend.avatar_url ? <Image source={{uri:friend.avatar_url}} style={styles.playerAvatar} /> : <View style={styles.playerAvatarFallback}><Ionicons name="person" size={18} color="#14201B" /></View>}
-                    <Text style={styles.playerName}>{friend.full_name || "Player"}</Text>
-                    <View style={[styles.friendAddButton, selected && styles.friendAddButtonSelected]}><Text style={[styles.friendAddText, selected && styles.friendAddTextSelected]}>{selected ? "Added" : "Add"}</Text></View>
+              {selectedQuantity > 1 && (
+                <Text style={styles.playerSectionTitle}>
+                  Your friends · choose {selectedQuantity - 1}
+                </Text>
+              )}
+              <ScrollView
+                style={styles.friendPickerList}
+                showsVerticalScrollIndicator={false}
+              >
+                {friends.map((friend: any) => {
+                  const selected = selectedFriendIds.includes(friend.id);
+                  return (
+                    <Pressable
+                      key={friend.id}
+                      style={styles.friendPickerRow}
+                      onPress={() =>
+                        setSelectedFriendIds((current) =>
+                          selected
+                            ? current.filter((id) => id !== friend.id)
+                            : current.length < selectedQuantity - 1
+                              ? [...current, friend.id]
+                              : current,
+                        )
+                      }
+                    >
+                      {friend.avatar_url ? (
+                        <Image
+                          source={{ uri: friend.avatar_url }}
+                          style={styles.playerAvatar}
+                        />
+                      ) : (
+                        <View style={styles.playerAvatarFallback}>
+                          <Ionicons name="person" size={18} color="#14201B" />
+                        </View>
+                      )}
+                      <Text style={styles.playerName}>
+                        {friend.full_name || "Player"}
+                      </Text>
+                      <View
+                        style={[
+                          styles.friendAddButton,
+                          selected && styles.friendAddButtonSelected,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.friendAddText,
+                            selected && styles.friendAddTextSelected,
+                          ]}
+                        >
+                          {selected ? "Added" : "Add"}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+                {selectedQuantity > 1 && friends.length === 0 && (
+                  <Pressable
+                    style={styles.addFriendsEmpty}
+                    onPress={() => {
+                      setPlayerModalVisible(false);
+                      router.push("/friends/add" as any);
+                    }}
+                  >
+                    <Ionicons
+                      name="person-add-outline"
+                      size={22}
+                      color="#00B77A"
+                    />
+                    <Text style={styles.addFriendsEmptyText}>
+                      Add friends first
+                    </Text>
                   </Pressable>
-                )})}
-                {selectedQuantity > 1 && friends.length === 0 && <Pressable style={styles.addFriendsEmpty} onPress={() => { setPlayerModalVisible(false); router.push("/friends/add" as any); }}><Ionicons name="person-add-outline" size={22} color="#00B77A"/><Text style={styles.addFriendsEmptyText}>Add friends first</Text></Pressable>}
+                )}
               </ScrollView>
             </View>
             <View style={styles.checkoutFooter}>
-              <Pressable style={styles.checkoutPrimaryPressable} onPress={handlePlayersContinue}>
-                <LinearGradient colors={ACTION_GRADIENT} start={ACTION_GRADIENT_START} end={ACTION_GRADIENT_END} style={styles.checkoutPrimaryButton}><Text style={styles.gradientButtonText}>Continue</Text><Ionicons name="arrow-forward" size={22} color="#F7F8FA"/></LinearGradient>
+              <Pressable
+                style={styles.checkoutPrimaryPressable}
+                onPress={handlePlayersContinue}
+              >
+                <LinearGradient
+                  colors={ACTION_GRADIENT}
+                  start={ACTION_GRADIENT_START}
+                  end={ACTION_GRADIENT_END}
+                  style={styles.checkoutPrimaryButton}
+                >
+                  <Text style={styles.gradientButtonText}>Continue</Text>
+                  <Ionicons name="arrow-forward" size={22} color="#F7F8FA" />
+                </LinearGradient>
               </Pressable>
             </View>
           </View>
@@ -811,13 +1035,8 @@ export default function GameBookingAction({
               <Pressable
                 style={styles.checkoutBackButton}
                 onPress={() => {
-                  if (selectedPaymentMethod) {
-                    setSelectedPaymentMethod(null);
-                    setPaymentNumberCopied(false);
-                  } else {
-                    setPaymentModalVisible(false);
-                    setQuantityModalVisible(true);
-                  }
+                  setPaymentModalVisible(false);
+                  setPaymentNumberCopied(false);
                 }}
               >
                 <Ionicons name="chevron-back" size={24} color="#14201B" />
@@ -865,11 +1084,16 @@ export default function GameBookingAction({
               <>
                 <View style={styles.checkoutContent}>
                   <Text style={styles.checkoutTitle}>
-                    Pay with {selectedPaymentInfo?.label}
+                    {selectedPaymentInfo?.label} payment
+                  </Text>
+                  <Text style={styles.checkoutSubtitle}>
+                    Send the amount below, then confirm when you're done.
                   </Text>
 
                   <View style={styles.checkoutAmountCard}>
-                    <Text style={styles.checkoutFieldLabel}>Send this amount</Text>
+                    <Text style={styles.checkoutFieldLabel}>
+                      Send this amount
+                    </Text>
                     <Text style={styles.checkoutAmount}>{totalAmount} ETB</Text>
                   </View>
 
@@ -891,7 +1115,9 @@ export default function GameBookingAction({
                         onPress={handleCopyPaymentNumber}
                       >
                         <Ionicons
-                          name={paymentNumberCopied ? "checkmark" : "copy-outline"}
+                          name={
+                            paymentNumberCopied ? "checkmark" : "copy-outline"
+                          }
                           size={20}
                           color={paymentNumberCopied ? "#F72585" : "#14201B"}
                         />
@@ -902,7 +1128,9 @@ export default function GameBookingAction({
                   {!!selectedPaymentInfo?.accountName && (
                     <View style={styles.checkoutPaymentField}>
                       <View style={styles.checkoutPaymentFieldText}>
-                        <Text style={styles.checkoutFieldLabel}>Account name</Text>
+                        <Text style={styles.checkoutFieldLabel}>
+                          Account name
+                        </Text>
                         <Text style={styles.checkoutFieldValue}>
                           {selectedPaymentInfo.accountName}
                         </Text>
@@ -913,7 +1141,9 @@ export default function GameBookingAction({
                   <View style={styles.checkoutInstructions}>
                     <View style={styles.checkoutInstructionRow}>
                       <View style={styles.checkoutInstructionNumber}>
-                        <Text style={styles.checkoutInstructionNumberText}>1</Text>
+                        <Text style={styles.checkoutInstructionNumberText}>
+                          1
+                        </Text>
                       </View>
                       <Text style={styles.checkoutInstructionText}>
                         Copy the number above
@@ -921,7 +1151,9 @@ export default function GameBookingAction({
                     </View>
                     <View style={styles.checkoutInstructionRow}>
                       <View style={styles.checkoutInstructionNumber}>
-                        <Text style={styles.checkoutInstructionNumberText}>2</Text>
+                        <Text style={styles.checkoutInstructionNumberText}>
+                          2
+                        </Text>
                       </View>
                       <Text style={styles.checkoutInstructionText}>
                         Open {selectedPaymentInfo?.label}
@@ -929,7 +1161,9 @@ export default function GameBookingAction({
                     </View>
                     <View style={styles.checkoutInstructionRow}>
                       <View style={styles.checkoutInstructionNumber}>
-                        <Text style={styles.checkoutInstructionNumberText}>3</Text>
+                        <Text style={styles.checkoutInstructionNumberText}>
+                          3
+                        </Text>
                       </View>
                       <Text style={styles.checkoutInstructionText}>
                         Send exactly {totalAmount} ETB
@@ -959,8 +1193,14 @@ export default function GameBookingAction({
                         <ActivityIndicator size="small" color="#F7F8FA" />
                       ) : (
                         <>
-                          <Text style={styles.gradientButtonText}>I've paid</Text>
-                          <Ionicons name="checkmark-circle-outline" size={22} color="#F7F8FA" />
+                          <Text style={styles.gradientButtonText}>
+                            I've paid
+                          </Text>
+                          <Ionicons
+                            name="checkmark-circle-outline"
+                            size={22}
+                            color="#F7F8FA"
+                          />
                         </>
                       )}
                     </LinearGradient>
@@ -1049,36 +1289,59 @@ export default function GameBookingAction({
       </Modal>
 
       {/* PAYMENT SUBMITTED */}
+      {/* PAYMENT SUBMITTED */}
       <Modal
         visible={paymentSubmittedModalVisible}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setPaymentSubmittedModalVisible(false)}
       >
-        <View style={styles.backdrop}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => setPaymentSubmittedModalVisible(false)}
-          />
-          <View style={styles.sheetCentered}>
-            <View style={styles.handle} />
-            <View style={styles.submittedIcon}>
-              <Ionicons name="checkmark" size={34} color="#F7F8FA" />
+        <View style={styles.paymentSubmittedBackdrop}>
+          <View style={styles.paymentSubmittedCard}>
+            {/* Clock icon */}
+            <View style={styles.paymentSubmittedIconCircle}>
+              <Ionicons name="time-outline" size={42} color="#00B77A" />
             </View>
-            <Text style={styles.sheetTitle}>Booking submitted</Text>
-            <Text style={styles.sheetSubtitle}>
-              Your {selectedQuantity}{" "}
-              {selectedQuantity === 1 ? "spot is" : "spots are"} reserved.
-              Payment is waiting for organizer confirmation.
+
+            {/* Title */}
+            <Text style={styles.paymentSubmittedTitle}>Payment submitted</Text>
+
+            {/* Message */}
+            <Text style={styles.paymentSubmittedSubtitle}>
+              We've received your payment.{"\n"}
+              Waiting for organizer confirmation.
             </Text>
+
+            {/* Amount */}
+            <View style={styles.paymentSubmittedAmountCard}>
+              <View style={styles.paymentSubmittedLockCircle}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={22}
+                  color="#00B77A"
+                />
+              </View>
+
+              <View style={styles.paymentSubmittedAmountContent}>
+                <Text style={styles.paymentSubmittedAmount}>
+                  {totalAmount} ETB
+                </Text>
+
+                <Text style={styles.paymentSubmittedAmountLabel}>
+                  Waiting for confirmation
+                </Text>
+              </View>
+            </View>
+
+            {/* View game */}
             <Pressable
               style={({ pressed }) => [
-                styles.primaryButton,
+                styles.paymentSubmittedButton,
                 pressed && styles.buttonPressed,
               ]}
               onPress={() => setPaymentSubmittedModalVisible(false)}
             >
-              <Text style={styles.primaryButtonText}>Done</Text>
+              <Text style={styles.paymentSubmittedButtonText}>View game</Text>
             </Pressable>
           </View>
         </View>
@@ -1182,6 +1445,120 @@ function PaymentChoice({ icon, title, enabled, onPress }: PaymentChoiceProps) {
 }
 
 const styles = StyleSheet.create({
+  multiSpotBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+
+  multiSpotCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 26,
+    paddingBottom: 20,
+    alignItems: "center",
+  },
+
+  multiSpotIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#E7F8F1",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+
+  multiSpotTitle: {
+    color: "#14201B",
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  multiSpotDescription: {
+    color: "#66766F",
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: "center",
+    marginTop: 8,
+  },
+
+  multiSpotSummary: {
+    width: "100%",
+    minHeight: 72,
+    marginTop: 20,
+    marginBottom: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderRadius: 16,
+    backgroundColor: "#F7F8FA",
+    borderWidth: 1,
+    borderColor: "#DDE6E2",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 14,
+  },
+
+  multiSpotSummaryLabel: {
+    color: "#14201B",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
+  multiSpotSummaryCalculation: {
+    color: "#66766F",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 3,
+  },
+
+  multiSpotSummaryTotal: {
+    color: "#14201B",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+
+  multiSpotConfirmPressable: {
+    width: "100%",
+    borderRadius: 15,
+    overflow: "hidden",
+  },
+
+  multiSpotConfirmButton: {
+    width: "100%",
+    minHeight: 52,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 18,
+  },
+
+  multiSpotBackButton: {
+    minHeight: 44,
+    paddingHorizontal: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 6,
+  },
+
+  multiSpotBackButtonPressed: {
+    opacity: 0.6,
+  },
+
+  multiSpotBackText: {
+    color: "#66766F",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
   wrapper: {
     minHeight: 86,
     backgroundColor: "#F7F8FA",
@@ -1244,19 +1621,57 @@ const styles = StyleSheet.create({
   directionsButtonText: { color: "#F7F8FA", fontSize: 16, fontWeight: "900" },
 
   pendingFooter: {
-    minHeight: 76,
-    backgroundColor: "#F0F5F3",
+    minHeight: 82,
+    backgroundColor: "#F7F8FA",
     borderTopWidth: 1,
     borderTopColor: "#DDE6E2",
     paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingTop: 13,
+    paddingBottom: 14,
+  },
+  pendingFooterTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
+    justifyContent: "space-between",
+    gap: 14,
   },
-  pendingFooterTextWrap: { flex: 1 },
-  pendingFooterTitle: { color: "#00B77A", fontSize: 15, fontWeight: "900" },
-  pendingFooterText: { color: "#557264", fontSize: 12, marginTop: 2 },
+  pendingPaymentSummary: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  pendingCheckIcon: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: "#00B77A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pendingPaymentSummaryText: {
+    flexShrink: 1,
+    color: "#14201B",
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  pendingWaiting: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
+  pendingWaitingText: {
+    color: "#66766F",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  pendingFooterText: {
+    color: "#66766F",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 6,
+    marginLeft: 30,
+  },
 
   cancelledFooter: {
     minHeight: 86,
@@ -1730,20 +2145,71 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
   },
-  playerSelectedCard: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: "#DDE6E2", borderRadius: 14, paddingHorizontal: 12, marginTop: 18 },
+  playerSelectedCard: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderColor: "#DDE6E2",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    marginTop: 18,
+  },
   playerAvatar: { width: 38, height: 38, borderRadius: 19 },
-  playerAvatarFallback: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#F0F5F3", alignItems: "center", justifyContent: "center" },
+  playerAvatarFallback: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#F0F5F3",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   playerName: { flex: 1, fontSize: 15, fontWeight: "700", color: "#14201B" },
-  youBadge: { backgroundColor: "#F0F5F3", paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10 },
+  youBadge: {
+    backgroundColor: "#F0F5F3",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 10,
+  },
   youBadgeText: { color: "#00B77A", fontSize: 12, fontWeight: "800" },
-  playerSectionTitle: { fontSize: 14, fontWeight: "800", color: "#14201B", marginTop: 20, marginBottom: 6 },
+  playerSectionTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#14201B",
+    marginTop: 20,
+    marginBottom: 6,
+  },
   friendPickerList: { maxHeight: 280 },
-  friendPickerRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: 1, borderBottomColor: "#F0F5F3" },
-  friendAddButton: { backgroundColor: "#F0F5F3", paddingHorizontal: 15, paddingVertical: 8, borderRadius: 11 },
+  friendPickerRow: {
+    minHeight: 58,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F0F5F3",
+  },
+  friendAddButton: {
+    backgroundColor: "#F0F5F3",
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 11,
+  },
   friendAddButtonSelected: { backgroundColor: "#00B77A" },
   friendAddText: { color: "#00B77A", fontWeight: "800", fontSize: 13 },
   friendAddTextSelected: { color: "#F7F8FA" },
-  addFriendsEmpty: { marginTop: 18, minHeight: 58, borderWidth: 1, borderColor: "#ABEFC6", borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#ECFDF3" },
+  addFriendsEmpty: {
+    marginTop: 18,
+    minHeight: 58,
+    borderWidth: 1,
+    borderColor: "#ABEFC6",
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#ECFDF3",
+  },
   addFriendsEmptyText: { color: "#00B77A", fontWeight: "800" },
   checkoutPaymentList: {
     gap: 12,
@@ -1902,24 +2368,27 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   successTitle: {
-    color: "#F7F8FA",
+    color: "#14201B",
     fontSize: 30,
+    lineHeight: 36,
     fontWeight: "900",
     textAlign: "center",
   },
   successGameTitle: {
-    color: "#AFC0CD",
-    fontSize: 16,
-    fontWeight: "700",
+    color: "#33433C",
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: "800",
     textAlign: "center",
-    marginTop: 7,
+    marginTop: 6,
   },
   successText: {
     color: "#66766F",
-    fontSize: 14,
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: "700",
     textAlign: "center",
-    marginTop: 8,
+    marginTop: 5,
   },
   waitlistIcon: {
     width: 64,
@@ -1938,5 +2407,116 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
+  },
+  paymentSubmittedBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.58)",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+
+  paymentSubmittedCard: {
+    width: "100%",
+    maxWidth: 360,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 26,
+    paddingHorizontal: 22,
+    paddingTop: 28,
+    paddingBottom: 22,
+    alignItems: "center",
+
+    shadowColor: "#14201B",
+    shadowOffset: {
+      width: 0,
+      height: 14,
+    },
+    shadowOpacity: 0.16,
+    shadowRadius: 26,
+    elevation: 12,
+  },
+
+  paymentSubmittedIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#E7F8F1",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+  },
+
+  paymentSubmittedTitle: {
+    color: "#14201B",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  paymentSubmittedSubtitle: {
+    color: "#66766F",
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "500",
+    textAlign: "center",
+    marginTop: 8,
+  },
+
+  paymentSubmittedAmountCard: {
+    width: "100%",
+    minHeight: 72,
+    borderRadius: 17,
+    backgroundColor: "#EAF8F3",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+    marginTop: 22,
+  },
+
+  paymentSubmittedLockCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  paymentSubmittedAmountContent: {
+    justifyContent: "center",
+  },
+
+  paymentSubmittedAmount: {
+    color: "#14201B",
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: "900",
+  },
+
+  paymentSubmittedAmountLabel: {
+    color: "#66766F",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+
+  paymentSubmittedButton: {
+    width: "100%",
+    minHeight: 52,
+    borderRadius: 15,
+    backgroundColor: "#00B77A",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 24,
+  },
+
+  paymentSubmittedButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "900",
   },
 });

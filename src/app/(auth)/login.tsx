@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
+import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -23,10 +24,16 @@ import { COLORS } from "../../constants/colors";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { supabase } from "../../lib/supabase";
 
-WebBrowser.maybeCompleteAuthSession();
-
 const LOGIN_HERO = require("../../../assets/images/home.jpg");
 const GOOGLE_ICON = require("../../../assets/images/google-g-icon.png");
+
+const NATIVE_REDIRECT_URL = "addisfootball://auth/callback";
+
+/*
+ * Replace these with your real public URLs.
+ */
+const TERMS_URL = "YOUR_TERMS_URL";
+const PRIVACY_URL = "YOUR_PRIVACY_URL";
 
 export default function LoginScreen() {
   const [loadingProvider, setLoadingProvider] = useState<
@@ -46,130 +53,290 @@ export default function LoginScreen() {
     Alert.alert(title, message);
   }
 
+  async function openLegalLink(url: string) {
+    if (!url || url.startsWith("YOUR_")) {
+      showMessage(
+        "Coming soon",
+        "This page is not available yet.",
+      );
+      return;
+    }
+
+    try {
+      const supported = await Linking.canOpenURL(url);
+
+      if (!supported) {
+        throw new Error("This link could not be opened.");
+      }
+
+      await Linking.openURL(url);
+    } catch (error) {
+      console.log("Legal link error:", error);
+
+      showMessage(
+        "Unable to open page",
+        "Please try again.",
+      );
+    }
+  }
+
+  async function finishNativeOAuth(url: string) {
+    console.log("OAuth callback URL:", url);
+
+    const parsed = Linking.parse(url);
+
+    const queryParams = parsed.queryParams ?? {};
+
+    const code =
+      typeof queryParams.code === "string"
+        ? queryParams.code
+        : null;
+
+    if (code) {
+      console.log("OAuth callback contains PKCE code");
+
+      const { data, error } =
+        await supabase.auth.exchangeCodeForSession(code);
+
+      if (error) {
+        console.log(
+          "OAuth code exchange error:",
+          error,
+        );
+
+        throw error;
+      }
+
+      if (!data.session) {
+        throw new Error(
+          "Authentication completed but no session was returned.",
+        );
+      }
+
+      console.log(
+        "OAuth session created successfully",
+      );
+
+      router.replace("/");
+      return;
+    }
+
+    /*
+     * Support implicit-flow tokens too.
+     *
+     * Depending on the OAuth/Supabase configuration,
+     * access_token and refresh_token may be returned
+     * in the URL fragment instead of query parameters.
+     */
+    const hashIndex = url.indexOf("#");
+
+    if (hashIndex !== -1) {
+      const hash = url.substring(hashIndex + 1);
+
+      const hashParams = new URLSearchParams(hash);
+
+      const accessToken =
+        hashParams.get("access_token");
+
+      const refreshToken =
+        hashParams.get("refresh_token");
+
+      const errorDescription =
+        hashParams.get("error_description");
+
+      if (errorDescription) {
+        throw new Error(
+          decodeURIComponent(errorDescription),
+        );
+      }
+
+      if (accessToken && refreshToken) {
+        console.log(
+          "OAuth callback contains session tokens",
+        );
+
+        const { data, error } =
+          await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+
+        if (error) {
+          console.log(
+            "OAuth setSession error:",
+            error,
+          );
+
+          throw error;
+        }
+
+        if (!data.session) {
+          throw new Error(
+            "Authentication completed but no session was returned.",
+          );
+        }
+
+        console.log(
+          "OAuth session restored successfully",
+        );
+
+        router.replace("/");
+        return;
+      }
+    }
+
+    /*
+     * Final check in case Supabase already persisted
+     * the session before the callback was processed.
+     */
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError) {
+      throw sessionError;
+    }
+
+    if (session) {
+      console.log(
+        "Existing OAuth session found successfully",
+      );
+
+      router.replace("/");
+      return;
+    }
+
+    throw new Error(
+      "Login finished, but no authentication session was returned.",
+    );
+  }
+
+  async function startNativeOAuth(
+    provider: "google" | "custom:telegram",
+  ) {
+    console.log(
+      "Starting native OAuth:",
+      provider,
+    );
+
+    console.log(
+      "Native redirect URL:",
+      NATIVE_REDIRECT_URL,
+    );
+
+    const { data, error } =
+      await supabase.auth.signInWithOAuth({
+        provider,
+        options: {
+          redirectTo: NATIVE_REDIRECT_URL,
+
+          /*
+           * Critical for native:
+           * Supabase gives us the provider URL,
+           * but we open it ourselves.
+           */
+          skipBrowserRedirect: true,
+        },
+      });
+
+    if (error) {
+      console.log(
+        "Supabase OAuth start error:",
+        error,
+      );
+
+      throw error;
+    }
+
+    if (!data?.url) {
+      throw new Error(
+        "Supabase did not return an OAuth URL.",
+      );
+    }
+
+    console.log("Opening OAuth provider...");
+
+    const result =
+      await WebBrowser.openAuthSessionAsync(
+        data.url,
+        NATIVE_REDIRECT_URL,
+      );
+
+    console.log(
+      "OAuth browser result type:",
+      result.type,
+    );
+
+    if (
+      result.type === "cancel" ||
+      result.type === "dismiss"
+    ) {
+      return;
+    }
+
+    if (
+      result.type === "success" &&
+      "url" in result &&
+      result.url
+    ) {
+      await finishNativeOAuth(result.url);
+      return;
+    }
+
+    console.log(
+      "OAuth finished without a callback URL:",
+      result,
+    );
+  }
+
   async function handleGoogleSignIn() {
     if (loading) return;
 
     try {
       Keyboard.dismiss();
+
       setLoadingProvider("google");
 
-      // WEB
+      /*
+       * WEB
+       */
       if (Platform.OS === "web") {
-        const redirectTo = `${window.location.origin}/auth/callback`;
+        const redirectTo =
+          `${window.location.origin}/auth/callback`;
 
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: "google",
-          options: {
-            redirectTo,
-          },
-        });
-
-        if (error) {
-          console.log("Google web OAuth error:", error);
-          showMessage(t("login.signInFailed"), error.message);
-          setLoadingProvider(null);
-        }
-
-        return;
-      }
-
-      // NATIVE
-      const redirectTo = Linking.createURL("auth/callback", {
-        scheme: "addisfootball",
-      });
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
+        console.log(
+          "Google web redirect:",
           redirectTo,
-          skipBrowserRedirect: true,
-        },
-      });
+        );
 
-      if (error) {
-        console.log("Google OAuth error:", error);
-        showMessage(t("login.signInFailed"), error.message);
-        return;
-      }
-
-      if (!data?.url) {
-        showMessage(t("login.signInFailed"), t("login.unableToStart"));
-        return;
-      }
-
-      const result = await WebBrowser.openAuthSessionAsync(
-        data.url,
-        redirectTo,
-      );
-
-      if (result.type !== "success" || !result.url) {
-        return;
-      }
-
-      const returnedUrl = result.url;
-      const parsedUrl = Linking.parse(returnedUrl);
-
-      const code =
-        typeof parsedUrl.queryParams?.code === "string"
-          ? parsedUrl.queryParams.code
-          : null;
-
-      if (code) {
-        const { error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(code);
-
-        if (exchangeError) {
-          console.log("Google code exchange error:", exchangeError);
-          showMessage(t("login.signInFailed"), exchangeError.message);
-          return;
-        }
-
-        router.replace("/");
-        return;
-      }
-
-      // Implicit-flow fallback
-      const hashIndex = returnedUrl.indexOf("#");
-
-      if (hashIndex !== -1) {
-        const hash = returnedUrl.substring(hashIndex + 1);
-        const params = new URLSearchParams(hash);
-
-        const accessToken = params.get("access_token");
-        const refreshToken = params.get("refresh_token");
-
-        if (accessToken && refreshToken) {
-          const { error: sessionError } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
+        const { error } =
+          await supabase.auth.signInWithOAuth({
+            provider: "google",
+            options: {
+              redirectTo,
+            },
           });
 
-          if (sessionError) {
-            console.log("Google session error:", sessionError);
-            showMessage(t("login.signInFailed"), sessionError.message);
-            return;
-          }
-
-          router.replace("/");
-          return;
+        if (error) {
+          throw error;
         }
-      }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        router.replace("/");
         return;
       }
 
-      showMessage(t("login.signInFailed"), t("login.sessionFailed"));
+      /*
+       * IOS / ANDROID
+       */
+      await startNativeOAuth("google");
     } catch (error: any) {
-      console.log("Google sign in error:", error);
+      console.log(
+        "Google sign-in error:",
+        error,
+      );
 
       showMessage(
-        t("login.somethingWrong"),
+        t("login.signInFailed"),
         error?.message || t("login.tryAgain"),
       );
     } finally {
@@ -182,125 +349,50 @@ export default function LoginScreen() {
 
     try {
       Keyboard.dismiss();
+
       setLoadingProvider("telegram");
 
-      // WEB
+      /*
+       * WEB
+       */
       if (Platform.OS === "web") {
-        const redirectTo = `${window.location.origin}/auth/callback`;
+        const redirectTo =
+          `${window.location.origin}/auth/callback`;
 
-        const { error } = await supabase.auth.signInWithOAuth({
-          provider: "custom:telegram",
-          options: {
-            redirectTo,
-          },
-        });
-
-        if (error) {
-          console.log("Telegram web OAuth error:", error);
-          showMessage(t("login.signInFailed"), error.message);
-          setLoadingProvider(null);
-        }
-
-        return;
-      }
-
-      // NATIVE
-      const redirectTo = Linking.createURL("auth/callback", {
-        scheme: "addisfootball",
-      });
-
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "custom:telegram",
-        options: {
+        console.log(
+          "Telegram web redirect:",
           redirectTo,
-          skipBrowserRedirect: true,
-        },
-      });
+        );
 
-      if (error) {
-        console.log("Telegram OAuth error:", error);
-        showMessage(t("login.signInFailed"), error.message);
-        return;
-      }
-
-      if (!data?.url) {
-        showMessage(t("login.signInFailed"), t("login.unableToStart"));
-        return;
-      }
-
-      const result = await WebBrowser.openAuthSessionAsync(
-        data.url,
-        redirectTo,
-      );
-
-      if (result.type !== "success" || !result.url) {
-        return;
-      }
-
-      const returnedUrl = result.url;
-      const parsedUrl = Linking.parse(returnedUrl);
-
-      const code =
-        typeof parsedUrl.queryParams?.code === "string"
-          ? parsedUrl.queryParams.code
-          : null;
-
-      if (code) {
-        const { error: exchangeError } =
-          await supabase.auth.exchangeCodeForSession(code);
-
-        if (exchangeError) {
-          console.log("Telegram code exchange error:", exchangeError);
-          showMessage(t("login.signInFailed"), exchangeError.message);
-          return;
-        }
-
-        router.replace("/");
-        return;
-      }
-
-      // Implicit-flow fallback
-      const hashIndex = returnedUrl.indexOf("#");
-
-      if (hashIndex !== -1) {
-        const hash = returnedUrl.substring(hashIndex + 1);
-        const params = new URLSearchParams(hash);
-
-        const accessToken = params.get("access_token");
-        const refreshToken = params.get("refresh_token");
-
-        if (accessToken && refreshToken) {
-          const { error: sessionError } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
+        const { error } =
+          await supabase.auth.signInWithOAuth({
+            provider: "custom:telegram",
+            options: {
+              redirectTo,
+            },
           });
 
-          if (sessionError) {
-            console.log("Telegram session error:", sessionError);
-            showMessage(t("login.signInFailed"), sessionError.message);
-            return;
-          }
-
-          router.replace("/");
-          return;
+        if (error) {
+          throw error;
         }
-      }
 
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (session) {
-        router.replace("/");
         return;
       }
 
-      showMessage(t("login.signInFailed"), t("login.sessionFailed"));
+      /*
+       * IOS / ANDROID
+       */
+      await startNativeOAuth(
+        "custom:telegram",
+      );
     } catch (error: any) {
-      console.log("Telegram sign in error:", error);
+      console.log(
+        "Telegram sign-in error:",
+        error,
+      );
 
       showMessage(
-        t("login.somethingWrong"),
+        t("login.signInFailed"),
         error?.message || t("login.tryAgain"),
       );
     } finally {
@@ -309,18 +401,25 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["top", "bottom"]}
+    >
       <View style={styles.container}>
-        <Image
+        <ExpoImage
           source={LOGIN_HERO}
           style={styles.heroImage}
-          resizeMode="cover"
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          priority="high"
+          transition={0}
         />
 
-        {/* Very light overlay over the whole photograph */}
-        <View style={styles.photoOverlay} />
+        <View
+          pointerEvents="none"
+          style={styles.photoOverlay}
+        />
 
-        {/* Smooth transition from the photograph into the dark login area */}
         <LinearGradient
           pointerEvents="none"
           colors={[
@@ -332,88 +431,177 @@ export default function LoginScreen() {
             "rgba(7,9,8,0.78)",
             "rgba(7,9,8,0.90)",
           ]}
-          locations={[0, 0.12, 0.25, 0.42, 0.6, 0.8, 1]}
+          locations={[
+            0,
+            0.12,
+            0.25,
+            0.42,
+            0.6,
+            0.8,
+            1,
+          ]}
           style={styles.bottomGradient}
         />
 
-        <View style={styles.content}>
-          <View style={styles.brandArea}>
-            <Text style={styles.brandTitle}>
-              Addis <Text style={styles.brandAccent}>Football</Text>
-            </Text>
+        <View
+          pointerEvents="box-none"
+          style={styles.content}
+        >
+          <View style={styles.loginPanel}>
+            <View style={styles.brandArea}>
+              <Text style={styles.brandTitle}>
+                Addis{" "}
+                <Text style={styles.brandAccent}>
+                  Football
+                </Text>
+              </Text>
 
-            <Text style={styles.tagline}>Find your game.</Text>
+              <Text style={styles.tagline}>
+                Find your game.
+              </Text>
 
-            <Text style={styles.subTagline}>Join. Play. Connect.</Text>
-          </View>
+              <Text style={styles.subTagline}>
+                Join. Play. Connect.
+              </Text>
+            </View>
 
-          <View style={styles.authArea}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("login.continueGoogle")}
-              disabled={loading}
-              onPress={handleGoogleSignIn}
-              style={({ pressed }) => [
-                styles.googleButton,
-                pressed && !loading && styles.googleButtonPressed,
-                loading && styles.authButtonDisabled,
-              ]}
-            >
-              {loadingProvider === "google" ? (
-                <ActivityIndicator size="small" color="#4285F4" />
-              ) : (
-                <>
-                  <Image
-                    source={GOOGLE_ICON}
-                    style={styles.googleGImage}
-                    resizeMode="contain"
+            <View style={styles.authArea}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t(
+                  "login.continueGoogle",
+                )}
+                disabled={loading}
+                onPress={handleGoogleSignIn}
+                style={({ pressed }) => [
+                  styles.googleButton,
+                  pressed &&
+                    !loading &&
+                    styles.googleButtonPressed,
+                  loading &&
+                    styles.authButtonDisabled,
+                ]}
+              >
+                {loadingProvider === "google" ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#4285F4"
                   />
+                ) : (
+                  <>
+                    <Image
+                      source={GOOGLE_ICON}
+                      style={styles.googleGImage}
+                      resizeMode="contain"
+                    />
 
-                  <Text style={styles.googleButtonText}>
-                    {t("login.continueGoogle")}
+                    <Text
+                      style={styles.googleButtonText}
+                    >
+                      {t("login.continueGoogle")}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={t(
+                  "login.continueTelegram",
+                )}
+                disabled={loading}
+                onPress={handleTelegramSignIn}
+                style={({ pressed }) => [
+                  styles.telegramButton,
+                  pressed &&
+                    !loading &&
+                    styles.telegramButtonPressed,
+                  loading &&
+                    styles.authButtonDisabled,
+                ]}
+              >
+                {loadingProvider ===
+                "telegram" ? (
+                  <>
+                    <ActivityIndicator
+                      size="small"
+                      color="#FFFFFF"
+                    />
+
+                    <Text
+                      style={
+                        styles.telegramButtonText
+                      }
+                    >
+                      {t("login.connecting")}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons
+                      name="paper-plane"
+                      size={24}
+                      color="#FFFFFF"
+                    />
+
+                    <Text
+                      style={
+                        styles.telegramButtonText
+                      }
+                    >
+                      {t(
+                        "login.continueTelegram",
+                      )}
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+
+              <View style={styles.legalRow}>
+                <Pressable
+                  accessibilityRole="link"
+                  accessibilityLabel="Terms of Service"
+                  hitSlop={10}
+                  onPress={() =>
+                    openLegalLink(TERMS_URL)
+                  }
+                  style={({ pressed }) => [
+                    styles.legalPressable,
+                    pressed &&
+                      styles.legalPressablePressed,
+                  ]}
+                >
+                  <Text style={styles.legalText}>
+                    Terms of Service
                   </Text>
-                </>
-              )}
-            </Pressable>
+                </Pressable>
 
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={t("login.continueTelegram")}
-              disabled={loading}
-              onPress={handleTelegramSignIn}
-              style={({ pressed }) => [
-                styles.telegramButton,
-                pressed && !loading && styles.telegramButtonPressed,
-                loading && styles.authButtonDisabled,
-              ]}
-            >
-              {loadingProvider === "telegram" ? (
-                <>
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                <Text
+                  style={styles.legalDot}
+                  accessibilityElementsHidden
+                  importantForAccessibility="no"
+                >
+                  •
+                </Text>
 
-                  <Text style={styles.telegramButtonText}>
-                    {t("login.connecting")}
+                <Pressable
+                  accessibilityRole="link"
+                  accessibilityLabel="Privacy Policy"
+                  hitSlop={10}
+                  onPress={() =>
+                    openLegalLink(PRIVACY_URL)
+                  }
+                  style={({ pressed }) => [
+                    styles.legalPressable,
+                    pressed &&
+                      styles.legalPressablePressed,
+                  ]}
+                >
+                  <Text style={styles.legalText}>
+                    Privacy Policy
                   </Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons
-                    name="paper-plane"
-                    size={24}
-                    color="#FFFFFF"
-                  />
-
-                  <Text style={styles.telegramButtonText}>
-                    {t("login.continueTelegram")}
-                  </Text>
-                </>
-              )}
-            </Pressable>
-
-            <View style={styles.legalRow}>
-              <Text style={styles.legalText}>Terms of Service</Text>
-              <Text style={styles.legalDot}>•</Text>
-              <Text style={styles.legalText}>Privacy Policy</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         </View>
@@ -454,21 +642,33 @@ const styles = StyleSheet.create({
     height: "66%",
   },
 
-content: {
-  flex: 1,
-  justifyContent: "flex-end",
-  paddingHorizontal: 26,
-  paddingBottom: Platform.OS === "web" ? 30 : 18,
-  zIndex: 10,
+  content: {
+    ...StyleSheet.absoluteFillObject,
 
-  ...(Platform.OS === "web"
-    ? {
-        width: "100%",
-        maxWidth: 560,
-        alignSelf: "center",
-      }
-    : {}),
-},
+    ...(Platform.OS === "web"
+      ? {
+          width: "100%",
+          maxWidth: 560,
+          alignSelf: "center",
+        }
+      : {}),
+  },
+
+  loginPanel: {
+    position: "absolute",
+
+    ...(Platform.OS === "web"
+      ? {
+          left: 26,
+          right: 26,
+          top: 40,
+        }
+      : {
+          left: 26,
+          right: 26,
+          bottom: 30,
+        }),
+  },
 
   brandArea: {
     marginBottom: 28,
@@ -480,6 +680,7 @@ content: {
     lineHeight: 50,
     fontWeight: "900",
     letterSpacing: -1.8,
+
     textShadowColor: "rgba(0,0,0,0.28)",
     textShadowOffset: {
       width: 0,
@@ -499,6 +700,7 @@ content: {
     fontWeight: "500",
     marginTop: 8,
     letterSpacing: -0.4,
+
     textShadowColor: "rgba(0,0,0,0.32)",
     textShadowOffset: {
       width: 0,
@@ -514,6 +716,7 @@ content: {
     fontWeight: "400",
     marginTop: 2,
     letterSpacing: -0.3,
+
     textShadowColor: "rgba(0,0,0,0.32)",
     textShadowOffset: {
       width: 0,
@@ -532,14 +735,19 @@ content: {
     height: 58,
     borderRadius: 29,
     backgroundColor: "#FFFFFF",
+
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 13,
+
     paddingHorizontal: 22,
+
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.92)",
+
     elevation: 6,
+
     shadowColor: "#000000",
     shadowOpacity: 0.2,
     shadowRadius: 12,
@@ -572,14 +780,19 @@ content: {
     height: 58,
     borderRadius: 29,
     backgroundColor: "#229ED9",
+
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
+
     paddingHorizontal: 22,
+
     borderWidth: 1,
     borderColor: "#4DC5F7",
+
     elevation: 6,
+
     shadowColor: "#000000",
     shadowOpacity: 0.22,
     shadowRadius: 12,
@@ -610,6 +823,14 @@ content: {
     gap: 12,
     marginTop: 12,
     paddingBottom: 2,
+  },
+
+  legalPressable: {
+    paddingVertical: 4,
+  },
+
+  legalPressablePressed: {
+    opacity: 0.6,
   },
 
   legalText: {

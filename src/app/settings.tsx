@@ -24,21 +24,19 @@ const PRIVACY_POLICY_URL =
 
 const SUPPORT_EMAIL = "addisfootballapp@gmail.com";
 
+const organizerRoleCache: Record<string, boolean> = {};
+
 export default function SettingsScreen() {
   const { language, setLanguage, t } = useLanguage();
 
   const [languageOpen, setLanguageOpen] = useState(false);
   const [isOrganizer, setIsOrganizer] = useState(false);
 
-  const [deleteModalVisible, setDeleteModalVisible] =
-    useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
 
-  const [isDeletingAccount, setIsDeletingAccount] =
-    useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
 
-  const [deleteError, setDeleteError] = useState<
-    string | null
-  >(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -59,6 +57,13 @@ export default function SettingsScreen() {
           return;
         }
 
+        if (
+          Object.prototype.hasOwnProperty.call(organizerRoleCache, userId) &&
+          active
+        ) {
+          setIsOrganizer(organizerRoleCache[userId]);
+        }
+
         const { data, error } = await supabase
           .from("profiles")
           .select("role")
@@ -72,7 +77,10 @@ export default function SettingsScreen() {
           return;
         }
 
-        setIsOrganizer(data?.role === "organizer");
+        const nextIsOrganizer = data?.role === "organizer";
+
+        organizerRoleCache[userId] = nextIsOrganizer;
+        setIsOrganizer(nextIsOrganizer);
       }
 
       void loadRole();
@@ -96,10 +104,7 @@ export default function SettingsScreen() {
     const { error } = await supabase.auth.signOut();
 
     if (error) {
-      Alert.alert(
-        t("settings.signOutFailed"),
-        error.message,
-      );
+      Alert.alert(t("settings.signOutFailed"), error.message);
 
       return;
     }
@@ -134,10 +139,6 @@ export default function SettingsScreen() {
     setIsDeletingAccount(true);
 
     try {
-      // -------------------------------------------------------
-      // Make sure the user still has a valid session
-      // -------------------------------------------------------
-
       const {
         data: { session },
         error: sessionError,
@@ -157,74 +158,37 @@ export default function SettingsScreen() {
         return;
       }
 
-      // -------------------------------------------------------
-      // Call our secure Supabase Edge Function
-      // -------------------------------------------------------
-
-      const { data, error } =
-        await supabase.functions.invoke("delete-account", {
+      const { data, error } = await supabase.functions.invoke(
+        "delete-account",
+        {
           method: "POST",
-        });
+        },
+      );
 
       if (error) {
-        console.log(
-          "Delete account function error:",
-          error,
-        );
+        console.log("Delete account function error:", error);
 
-        throw new Error(
-          error.message ||
-            "Unable to delete your account.",
-        );
+        throw new Error(error.message || "Unable to delete your account.");
       }
 
       if (!data?.success) {
-        console.log(
-          "Unexpected delete-account response:",
-          data,
-        );
+        console.log("Unexpected delete-account response:", data);
 
-        throw new Error(
-          data?.error ||
-            "Unable to confirm account deletion.",
-        );
+        throw new Error(data?.error || "Unable to confirm account deletion.");
       }
-
-      // -------------------------------------------------------
-      // Server deletion succeeded
-      // -------------------------------------------------------
 
       setDeleteModalVisible(false);
 
-      /*
-       * The Auth user has already been deleted by the Edge
-       * Function. We still attempt to clear the local Supabase
-       * session.
-       *
-       * If signOut reports an error because the server-side
-       * account no longer exists, we still continue to login.
-       */
       try {
-        const { error: signOutError } =
-          await supabase.auth.signOut();
+        const { error: signOutError } = await supabase.auth.signOut();
 
         if (signOutError) {
-          console.log(
-            "Post-deletion sign out error:",
-            signOutError,
-          );
+          console.log("Post-deletion sign out error:", signOutError);
         }
       } catch (signOutException) {
-        console.log(
-          "Post-deletion sign out exception:",
-          signOutException,
-        );
+        console.log("Post-deletion sign out exception:", signOutException);
       }
 
-      /*
-       * Navigate immediately instead of depending on
-       * Alert.alert(), so this also works correctly on web.
-       */
       router.replace("/login");
     } catch (error) {
       console.log("Delete account error:", error);
@@ -234,10 +198,6 @@ export default function SettingsScreen() {
           ? error.message
           : "Unable to delete your account. Please try again.";
 
-      /*
-       * Keep the modal open and show the error directly inside
-       * it. This works on web, Android and iOS.
-       */
       setDeleteError(message);
     } finally {
       setIsDeletingAccount(false);
@@ -261,17 +221,12 @@ export default function SettingsScreen() {
     } catch (error) {
       console.log("Open URL error:", error);
 
-      Alert.alert(
-        t("settings.unableToOpenLink"),
-        t("settings.pleaseTryAgain"),
-      );
+      Alert.alert(t("settings.unableToOpenLink"), t("settings.pleaseTryAgain"));
     }
   }
 
   async function openSupportEmail() {
-    const subject = encodeURIComponent(
-      t("settings.supportEmailSubject"),
-    );
+    const subject = encodeURIComponent(t("settings.supportEmailSubject"));
 
     const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}`;
 
@@ -300,9 +255,8 @@ export default function SettingsScreen() {
 
   function currentLanguageLabel() {
     return (
-      languageOptions.find(
-        (option) => option.code === language,
-      )?.label || language.toUpperCase()
+      languageOptions.find((option) => option.code === language)?.label ||
+      language.toUpperCase()
     );
   }
 
@@ -326,16 +280,10 @@ export default function SettingsScreen() {
             }
           }}
         >
-          <Ionicons
-            name="arrow-back"
-            size={23}
-            color={COLORS.text}
-          />
+          <Ionicons name="arrow-back" size={23} color={COLORS.text} />
         </Pressable>
 
-        <Text style={styles.headerTitle}>
-          {t("settings.title")}
-        </Text>
+        <Text style={styles.headerTitle}>{t("settings.title")}</Text>
 
         <View style={styles.headerSpacer} />
       </View>
@@ -351,21 +299,14 @@ export default function SettingsScreen() {
       >
         {/* GENERAL */}
 
-        <Text style={styles.sectionTitle}>
-          {t("settings.general")}
-        </Text>
+        <Text style={styles.sectionTitle}>{t("settings.general")}</Text>
 
         <View style={styles.card}>
           {/* LANGUAGE */}
 
           <Pressable
-            style={({ pressed }) => [
-              styles.row,
-              pressed && styles.pressed,
-            ]}
-            onPress={() =>
-              setLanguageOpen((open) => !open)
-            }
+            style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+            onPress={() => setLanguageOpen((open) => !open)}
           >
             <View style={styles.rowLeft}>
               <View style={styles.iconBox}>
@@ -377,76 +318,61 @@ export default function SettingsScreen() {
               </View>
 
               <View style={styles.rowText}>
-                <Text style={styles.rowTitle}>
-                  {t("settings.language")}
-                </Text>
+                <Text style={styles.rowTitle}>{t("settings.language")}</Text>
 
-                <Text style={styles.rowSubtitle}>
-                  {currentLanguageLabel()}
-                </Text>
+                <Text style={styles.rowSubtitle}>{currentLanguageLabel()}</Text>
               </View>
             </View>
 
-            <Ionicons
-              name={
-                languageOpen
-                  ? "chevron-up"
-                  : "chevron-down"
-              }
-              size={20}
-              color="#66766F"
-            />
+            <View style={styles.settingChevron}>
+              <Ionicons
+                name={languageOpen ? "chevron-down" : "chevron-forward"}
+                size={20}
+                color="#66766F"
+              />
+            </View>
           </Pressable>
 
           {languageOpen && (
             <View style={styles.languageContainer}>
-              {languageOptions.map((option) => {
-                const selected =
-                  language === option.code;
+              {languageOptions.map((option, index) => {
+                const selected = language === option.code;
 
                 return (
-                  <Pressable
-                    key={option.code}
-                    style={({ pressed }) => [
-                      styles.languageOption,
-                      selected &&
-                        styles.languageOptionSelected,
-                      pressed && styles.pressed,
-                    ]}
-                    onPress={() =>
-                      changeLanguage(option.code)
-                    }
-                  >
-                    <View>
-                      <Text
-                        style={[
-                          styles.languageName,
-                          selected &&
-                            styles.languageNameSelected,
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
+                  <View key={option.code}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.languageOption,
+                        pressed && styles.pressed,
+                      ]}
+                      onPress={() => changeLanguage(option.code)}
+                    >
+                      <View style={styles.languageOptionLeft}>
+                        <View style={styles.languageCheck}>
+                          {selected && (
+                            <Ionicons
+                              name="checkmark"
+                              size={18}
+                              color={COLORS.primary}
+                            />
+                          )}
+                        </View>
 
-                      <Text
-                        style={[
-                          styles.languageCode,
-                          selected &&
-                            styles.languageCodeSelected,
-                        ]}
-                      >
-                        {option.code.toUpperCase()}
-                      </Text>
-                    </View>
+                        <Text
+                          style={[
+                            styles.languageName,
+                            selected && styles.languageNameSelected,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                      </View>
+                    </Pressable>
 
-                    {selected && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={21}
-                        color={COLORS.primary}
-                      />
+                    {index < languageOptions.length - 1 && (
+                      <View style={styles.languageDivider} />
                     )}
-                  </Pressable>
+                  </View>
                 );
               })}
             </View>
@@ -457,12 +383,8 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="notifications-outline"
             title={t("settings.notifications")}
-            subtitle={t(
-              "settings.notificationsSubtitle",
-            )}
-            onPress={() =>
-              router.push("/notifications")
-            }
+            subtitle={t("settings.notificationsSubtitle")}
+            onPress={() => router.push("/notifications")}
           />
         </View>
 
@@ -470,22 +392,12 @@ export default function SettingsScreen() {
             ORGANIZE
         ==================================================== */}
 
-        <Text style={styles.sectionTitle}>
-          Organize
-        </Text>
+        <Text style={styles.sectionTitle}>Organize</Text>
 
         <View style={styles.card}>
           <SettingsRow
-            icon={
-              isOrganizer
-                ? "grid-outline"
-                : "football-outline"
-            }
-            title={
-              isOrganizer
-                ? "Organizer Dashboard"
-                : "Become an Organizer"
-            }
+            icon={isOrganizer ? "grid-outline" : "football-outline"}
+            title={isOrganizer ? "Organizer Dashboard" : "Become an Organizer"}
             subtitle={
               isOrganizer
                 ? "Manage your games and players"
@@ -505,17 +417,13 @@ export default function SettingsScreen() {
             SUPPORT
         ==================================================== */}
 
-        <Text style={styles.sectionTitle}>
-          {t("settings.support")}
-        </Text>
+        <Text style={styles.sectionTitle}>{t("settings.support")}</Text>
 
         <View style={styles.card}>
           <SettingsRow
             icon="help-circle-outline"
             title={t("settings.helpSupport")}
-            subtitle={t(
-              "settings.helpSupportSubtitle",
-            )}
+            subtitle={t("settings.helpSupportSubtitle")}
             onPress={openSupportEmail}
           />
 
@@ -524,9 +432,7 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="document-text-outline"
             title={t("settings.privacyPolicy")}
-            onPress={() =>
-              openExternalUrl(PRIVACY_POLICY_URL)
-            }
+            onPress={() => openExternalUrl(PRIVACY_POLICY_URL)}
           />
         </View>
 
@@ -534,9 +440,7 @@ export default function SettingsScreen() {
             ACCOUNT
         ==================================================== */}
 
-        <Text style={styles.sectionTitle}>
-          {t("settings.account")}
-        </Text>
+        <Text style={styles.sectionTitle}>{t("settings.account")}</Text>
 
         <View style={styles.card}>
           <SettingsRow
@@ -564,9 +468,7 @@ export default function SettingsScreen() {
           />
         </View>
 
-        <Text style={styles.version}>
-          {t("settings.footer")}
-        </Text>
+        <Text style={styles.version}>{t("settings.footer")}</Text>
 
         <View style={styles.bottomSpace} />
       </ScrollView>
@@ -590,40 +492,24 @@ export default function SettingsScreen() {
           />
 
           <View style={styles.deleteModal}>
-            {/* Icon */}
-
             <View style={styles.deleteModalIcon}>
-              <Ionicons
-                name="trash-outline"
-                size={30}
-                color="#FF5A62"
-              />
+              <Ionicons name="trash-outline" size={30} color="#FF5A62" />
             </View>
 
-            {/* Heading */}
-
-            <Text style={styles.deleteModalTitle}>
-              Delete your account?
-            </Text>
+            <Text style={styles.deleteModalTitle}>Delete your account?</Text>
 
             <Text style={styles.deleteModalDescription}>
-              This will permanently delete your Addis
-              Football account and associated personal data.
+              This will permanently delete your Addis Football account and
+              associated personal data.
             </Text>
 
             <View style={styles.warningBox}>
-              <Ionicons
-                name="warning-outline"
-                size={20}
-                color="#FFB45A"
-              />
+              <Ionicons name="warning-outline" size={20} color="#FFB45A" />
 
               <Text style={styles.warningText}>
                 This action cannot be undone.
               </Text>
             </View>
-
-            {/* Error */}
 
             {!!deleteError && (
               <View style={styles.deleteErrorBox}>
@@ -633,41 +519,29 @@ export default function SettingsScreen() {
                   color="#FF6B72"
                 />
 
-                <Text style={styles.deleteErrorText}>
-                  {deleteError}
-                </Text>
+                <Text style={styles.deleteErrorText}>{deleteError}</Text>
               </View>
             )}
-
-            {/* Buttons */}
 
             <View style={styles.modalButtons}>
               <Pressable
                 disabled={isDeletingAccount}
                 style={({ pressed }) => [
                   styles.cancelButton,
-                  pressed &&
-                    !isDeletingAccount &&
-                    styles.pressed,
-                  isDeletingAccount &&
-                    styles.disabled,
+                  pressed && !isDeletingAccount && styles.pressed,
+                  isDeletingAccount && styles.disabled,
                 ]}
                 onPress={closeDeleteModal}
               >
-                <Text style={styles.cancelButtonText}>
-                  Cancel
-                </Text>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </Pressable>
 
               <Pressable
                 disabled={isDeletingAccount}
                 style={({ pressed }) => [
                   styles.confirmDeleteButton,
-                  pressed &&
-                    !isDeletingAccount &&
-                    styles.pressed,
-                  isDeletingAccount &&
-                    styles.disabled,
+                  pressed && !isDeletingAccount && styles.pressed,
+                  isDeletingAccount && styles.disabled,
                 ]}
                 onPress={() => {
                   void deleteAccount();
@@ -675,32 +549,17 @@ export default function SettingsScreen() {
               >
                 {isDeletingAccount ? (
                   <>
-                    <ActivityIndicator
-                      size="small"
-                      color="#F7F8FA"
-                    />
+                    <ActivityIndicator size="small" color="#F7F8FA" />
 
-                    <Text
-                      style={
-                        styles.confirmDeleteButtonText
-                      }
-                    >
+                    <Text style={styles.confirmDeleteButtonText}>
                       Deleting...
                     </Text>
                   </>
                 ) : (
                   <>
-                    <Ionicons
-                      name="trash-outline"
-                      size={18}
-                      color="#F7F8FA"
-                    />
+                    <Ionicons name="trash-outline" size={18} color="#F7F8FA" />
 
-                    <Text
-                      style={
-                        styles.confirmDeleteButtonText
-                      }
-                    >
+                    <Text style={styles.confirmDeleteButtonText}>
                       Delete Account
                     </Text>
                   </>
@@ -744,69 +603,48 @@ function SettingsRow({
     <Pressable
       style={({ pressed }) => [
         styles.row,
-        pressed &&
-          !disabled &&
-          styles.pressed,
+        pressed && !disabled && styles.pressed,
         disabled && styles.disabled,
       ]}
       disabled={disabled}
       onPress={onPress}
     >
       <View style={styles.rowLeft}>
-        <View
-          style={[
-            styles.iconBox,
-            danger && styles.dangerIconBox,
-          ]}
-        >
+        <View style={[styles.iconBox, danger && styles.dangerIconBox]}>
           {loading ? (
-            <ActivityIndicator
-              size="small"
-              color="#FF5A62"
-            />
+            <ActivityIndicator size="small" color="#FF5A62" />
           ) : (
             <Ionicons
               name={icon}
               size={20}
-              color={
-                danger
-                  ? "#FF5A62"
-                  : COLORS.primary
-              }
+              color={danger ? "#FF5A62" : COLORS.primary}
             />
           )}
         </View>
 
         <View style={styles.rowText}>
-          <Text
-            style={[
-              styles.rowTitle,
-              danger && styles.dangerText,
-            ]}
-          >
+          <Text style={[styles.rowTitle, danger && styles.dangerText]}>
             {title}
           </Text>
 
-          {!!subtitle && (
-            <Text style={styles.rowSubtitle}>
-              {subtitle}
-            </Text>
-          )}
+          {!!subtitle && <Text style={styles.rowSubtitle}>{subtitle}</Text>}
         </View>
       </View>
 
       {!loading && (
-        <Ionicons
-          name="chevron-forward"
-          size={20}
-          color="#66766F"
-        />
+        <View style={styles.settingChevron}>
+          <Ionicons name="chevron-forward" size={20} color="#66766F" />
+        </View>
       )}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  // =========================================================
+  // SCREEN
+  // =========================================================
+
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
@@ -815,6 +653,10 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+
+  // =========================================================
+  // HEADER
+  // =========================================================
 
   header: {
     height: 58,
@@ -845,6 +687,10 @@ const styles = StyleSheet.create({
     width: 40,
   },
 
+  // =========================================================
+  // CONTENT
+  // =========================================================
+
   content: {
     width: "100%",
     maxWidth: 680,
@@ -874,6 +720,10 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
 
+  // =========================================================
+  // STANDARD SETTINGS ROW
+  // =========================================================
+
   row: {
     minHeight: 68,
     flexDirection: "row",
@@ -886,6 +736,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    minWidth: 0,
   },
 
   rowText: {
@@ -915,54 +766,70 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
 
+  // Keeps ALL arrows at the same far-right position.
+  settingChevron: {
+    width: 32,
+    alignItems: "flex-end",
+    justifyContent: "center",
+    marginLeft: 10,
+    flexShrink: 0,
+  },
+
   divider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: COLORS.border,
     marginLeft: 50,
   },
 
+  // =========================================================
+  // LANGUAGE
+  // =========================================================
+
   languageContainer: {
-    paddingBottom: 13,
-    gap: 7,
+    marginLeft: 50,
+    paddingRight: 0,
+    paddingBottom: 7,
   },
 
   languageOption: {
-    minHeight: 52,
-    paddingHorizontal: 14,
-    borderRadius: 13,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
   },
 
-  languageOptionSelected: {
-    backgroundColor: COLORS.primarySoft,
-    borderColor: COLORS.primary,
+  languageOptionLeft: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  languageCheck: {
+    width: 28,
+    alignItems: "flex-start",
+    justifyContent: "center",
   },
 
   languageName: {
     color: COLORS.text,
     fontSize: 14,
-    fontWeight: "700",
+    lineHeight: 20,
+    fontWeight: "600",
   },
 
   languageNameSelected: {
-    color: COLORS.primaryPressed,
-  },
-
-  languageCode: {
-    color: COLORS.textMuted,
-    fontSize: 10,
-    fontWeight: "800",
-    marginTop: 2,
-  },
-
-  languageCodeSelected: {
     color: COLORS.primary,
+    fontWeight: "800",
   },
+
+  languageDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: COLORS.border,
+    marginLeft: 28,
+  },
+
+  // =========================================================
+  // DANGER / DISABLED
+  // =========================================================
 
   dangerIconBox: {
     backgroundColor: "rgba(217, 45, 58, 0.08)",
@@ -976,16 +843,20 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
 
+  pressed: {
+    opacity: 0.7,
+  },
+
+  // =========================================================
+  // FOOTER
+  // =========================================================
+
   version: {
     color: COLORS.textSecondary,
     fontSize: 11,
     fontWeight: "600",
     textAlign: "center",
     marginTop: 2,
-  },
-
-  pressed: {
-    opacity: 0.7,
   },
 
   bottomSpace: {
@@ -1085,6 +956,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 18,
   },
+
+  // =========================================================
+  // MODAL BUTTONS
+  // =========================================================
 
   modalButtons: {
     width: "100%",

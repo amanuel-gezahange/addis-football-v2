@@ -1,30 +1,30 @@
 import { Ionicons } from "@expo/vector-icons";
-
 import { router, useFocusEffect } from "expo-router";
-
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Calendar } from "react-native-calendars";
 import {
   ActivityIndicator,
+  Keyboard,
+  FlatList,
   Image,
   Linking,
   Modal,
   Platform,
   Pressable,
-  ScrollView,
+  RefreshControl,
   StyleSheet,
   Text,
   TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
-
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 
 import { COLORS } from "../../constants/colors";
-
 import { useLanguage } from "../../i18n/LanguageContext";
-
 import { supabase } from "../../lib/supabase";
 
 type BookingStatus =
@@ -46,60 +46,521 @@ type PaymentStatus =
 
 type PaymentMethod = "free" | "venue" | "organizer";
 
+type BookingSection = "upcoming" | "history";
+
+type BookingSort = "upcoming" | "latest";
+
+type BookingFilter = "all" | "confirmed" | "payment_required" | "waitlisted";
+
 type Game = {
   id: number;
-
   title: string;
-
   organizer: string;
-
   area: string;
-
   distance: string | null;
-
   time: string;
-
   format: string;
-
   skill: string;
-
   price: number;
-
   image_url: string | null;
-
   starts_at: string | null;
-
   ends_at: string | null;
-
   status: string;
-
   payment_method: PaymentMethod;
-
   payment_provider: string | null;
-
   payment_phone: string | null;
-
   payment_account_name: string | null;
 };
+
 type Booking = {
   id: number;
-
   status: BookingStatus;
-
   price_paid: number | null;
-
   payment_status: PaymentStatus;
-
   payment_offer_expires_at: string | null;
-
   created_at: string;
-
   games: Game | null;
 };
 
+type Translate = (key: string) => string;
+
+let bookingsCache: Booking[] | null = null;
+
+/* ============================================================
+   BOOKING HELPERS
+   ============================================================ */
+
+function isCancelledBooking(booking: Booking) {
+  return (
+    booking.status === "cancelled_by_player" ||
+    booking.status === "cancelled_by_organizer"
+  );
+}
+
+function getBookingEndTime(booking: Booking) {
+  const game = booking.games;
+
+  if (!game?.starts_at) {
+    return 0;
+  }
+
+  return new Date(game.ends_at ?? game.starts_at).getTime();
+}
+
+function isHistoryBooking(booking: Booking, now: number) {
+  return isCancelledBooking(booking) || getBookingEndTime(booking) < now;
+}
+
+function matchesBookingFilter(booking: Booking, filter: BookingFilter) {
+  if (filter === "all") {
+    return true;
+  }
+
+  if (filter === "confirmed") {
+    return booking.status === "confirmed";
+  }
+
+  if (filter === "waitlisted") {
+    return booking.status === "waitlisted";
+  }
+
+  if (filter === "payment_required") {
+    return (
+      booking.status === "pending_payment" &&
+      booking.payment_status === "pending"
+    );
+  }
+
+  return true;
+}
+
+function getBookingStatus(
+  booking: Booking,
+  t: Translate,
+): {
+  label: string;
+  icon:
+    | "checkmark-circle"
+    | "time-outline"
+    | "close-circle-outline"
+    | "card-outline"
+    | "location-outline";
+  tone: "success" | "warning" | "danger" | "neutral";
+} {
+  const game = booking.games;
+
+  if (booking.status === "cancelled_by_organizer") {
+    return {
+      label: t("bookings.gameCancelled"),
+      icon: "close-circle-outline",
+      tone: "danger",
+    };
+  }
+
+  if (booking.status === "cancelled_by_player") {
+    return {
+      label: t("bookings.cancelled"),
+      icon: "close-circle-outline",
+      tone: "neutral",
+    };
+  }
+
+  if (
+    booking.status === "pending_payment" &&
+    booking.payment_status === "submitted"
+  ) {
+    return {
+      label: "Payment sent",
+      icon: "time-outline",
+      tone: "warning",
+    };
+  }
+
+  if (
+    booking.status === "pending_payment" &&
+    booking.payment_status === "pending"
+  ) {
+    return {
+      label: t("bookings.paymentRequired"),
+      icon: "card-outline",
+      tone: "warning",
+    };
+  }
+
+  if (booking.status === "waitlisted") {
+    return {
+      label: t("bookings.waitlisted"),
+      icon: "time-outline",
+      tone: "warning",
+    };
+  }
+
+  if (booking.payment_status === "refund_pending") {
+    return {
+      label: "Refund pending",
+      icon: "time-outline",
+      tone: "warning",
+    };
+  }
+
+  if (booking.payment_status === "refunded") {
+    return {
+      label: "Refunded",
+      icon: "checkmark-circle",
+      tone: "neutral",
+    };
+  }
+
+  if (game?.payment_method === "venue" && booking.status === "confirmed") {
+    return {
+      label: t("bookings.payAtVenue"),
+      icon: "location-outline",
+      tone: "success",
+    };
+  }
+
+  return {
+    label: t("bookings.confirmed"),
+    icon: "checkmark-circle",
+    tone: "success",
+  };
+}
+
+/* ============================================================
+   BOOKING CARD
+   ============================================================ */
+
+type BookingCardProps = {
+  booking: Booking;
+  dateLocale: string;
+  t: Translate;
+  history: boolean;
+  cancelling: boolean;
+  submitting: boolean;
+  onCancel: (booking: Booking) => void;
+  onSubmitPayment: (booking: Booking) => void;
+  onCallOrganizer: (phone: string | null) => void;
+};
+
+const BookingCard = memo(function BookingCard({
+  booking,
+  dateLocale,
+  t,
+  history,
+  cancelling,
+  submitting,
+  onCancel,
+  onSubmitPayment,
+  onCallOrganizer,
+}: BookingCardProps) {
+  const game = booking.games;
+
+  if (!game) {
+    return null;
+  }
+
+  const cancelled = isCancelledBooking(booking);
+  const status = getBookingStatus(booking, t);
+
+  const organizerPayment = game.payment_method === "organizer";
+
+  const paymentRequired =
+    organizerPayment &&
+    booking.status === "pending_payment" &&
+    booking.payment_status === "pending";
+
+  const paymentSubmitted =
+    organizerPayment &&
+    booking.status === "pending_payment" &&
+    booking.payment_status === "submitted";
+
+  function openGame() {
+    if (!cancelled) {
+      router.push(`/game/${game.id}`);
+    }
+  }
+
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.card,
+        cancelled && styles.cardCancelled,
+        pressed && !cancelled && styles.cardPressed,
+      ]}
+      onPress={openGame}
+      disabled={cancelled}
+      accessibilityRole="button"
+      accessibilityLabel={game.title}
+    >
+      <View style={styles.cardMainRow}>
+        <View style={styles.thumbnail}>
+          {game.image_url ? (
+            <Image
+              source={{ uri: game.image_url }}
+              style={[
+                styles.thumbnailImage,
+                cancelled && styles.cancelledImage,
+              ]}
+              resizeMode="cover"
+            />
+          ) : (
+            <View
+              style={[
+                styles.thumbnailFallback,
+                cancelled && styles.cancelledImage,
+              ]}
+            >
+              <View style={styles.fallbackLine} />
+              <View style={styles.fallbackCircle} />
+
+              <Ionicons
+                name="football-outline"
+                size={30}
+                color="rgba(255,255,255,0.24)"
+              />
+            </View>
+          )}
+        </View>
+
+        <View style={styles.cardContent}>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardTitle} numberOfLines={1}>
+              {game.title}
+            </Text>
+
+            {!cancelled && (
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color={COLORS.textMuted}
+              />
+            )}
+          </View>
+
+          <View
+            style={[
+              styles.statusPill,
+              status.tone === "warning" && styles.statusPillWarning,
+              status.tone === "danger" && styles.statusPillDanger,
+              status.tone === "neutral" && styles.statusPillNeutral,
+            ]}
+          >
+            <Ionicons
+              name={status.icon}
+              size={14}
+              color={
+                status.tone === "warning"
+                  ? "#9A6700"
+                  : status.tone === "danger"
+                    ? COLORS.danger
+                    : status.tone === "neutral"
+                      ? COLORS.textSecondary
+                      : COLORS.white
+              }
+            />
+
+            <Text
+              style={[
+                styles.statusPillText,
+                status.tone === "warning" && styles.statusPillTextWarning,
+                status.tone === "danger" && styles.statusPillTextDanger,
+                status.tone === "neutral" && styles.statusPillTextNeutral,
+              ]}
+              numberOfLines={1}
+            >
+              {status.label}
+            </Text>
+          </View>
+
+          <View style={styles.metaRow}>
+            <Ionicons
+              name="calendar-outline"
+              size={15}
+              color={COLORS.textSecondary}
+            />
+
+            <Text style={styles.metaText} numberOfLines={1}>
+              {game.starts_at
+                ? `${formatCompactAddisDate(
+                    game.starts_at,
+                    dateLocale,
+                  )} · ${formatAddisStartTime(game.starts_at, dateLocale)}`
+                : game.time}
+            </Text>
+          </View>
+
+          <View style={styles.metaRow}>
+            <Ionicons
+              name="location-outline"
+              size={16}
+              color={COLORS.textSecondary}
+            />
+
+            <Text style={styles.metaText} numberOfLines={1}>
+              {game.area}
+            </Text>
+          </View>
+
+          <Text style={styles.priceText}>
+            {game.payment_method === "free"
+              ? t("bookings.free")
+              : `${booking.price_paid ?? game.price} ETB`}
+          </Text>
+        </View>
+      </View>
+
+      {paymentRequired && (
+        <View style={styles.paymentBox}>
+          <View style={styles.paymentBoxHeader}>
+            <View style={styles.paymentIcon}>
+              <Ionicons name="wallet-outline" size={18} color="#9A6700" />
+            </View>
+
+            <View style={styles.paymentHeaderText}>
+              <Text style={styles.paymentTitle}>
+                {t("bookings.paymentRequired")}
+              </Text>
+
+              <Text style={styles.paymentDescription}>
+                Pay the organizer, then confirm that you sent the payment.
+              </Text>
+            </View>
+          </View>
+
+          {(game.payment_provider ||
+            game.payment_account_name ||
+            game.payment_phone) && (
+            <View style={styles.paymentDetails}>
+              {!!game.payment_provider && (
+                <PaymentDetailRow
+                  label="Payment"
+                  value={game.payment_provider}
+                />
+              )}
+
+              {!!game.payment_account_name && (
+                <PaymentDetailRow
+                  label="Account"
+                  value={game.payment_account_name}
+                />
+              )}
+
+              {!!game.payment_phone && (
+                <PaymentDetailRow
+                  label="Phone"
+                  value={game.payment_phone}
+                  last
+                />
+              )}
+            </View>
+          )}
+
+          <View style={styles.paymentActions}>
+            {!!game.payment_phone && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryAction,
+                  pressed && styles.actionPressed,
+                ]}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  onCallOrganizer(game.payment_phone);
+                }}
+              >
+                <Ionicons
+                  name="call-outline"
+                  size={17}
+                  color={COLORS.primary}
+                />
+
+                <Text style={styles.secondaryActionText}>Call</Text>
+              </Pressable>
+            )}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.primaryAction,
+                pressed && styles.actionPressed,
+                submitting && styles.actionDisabled,
+              ]}
+              disabled={submitting}
+              onPress={(event) => {
+                event.stopPropagation();
+                onSubmitPayment(booking);
+              }}
+            >
+              {submitting ? (
+                <ActivityIndicator size="small" color={COLORS.white} />
+              ) : (
+                <>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={18}
+                    color={COLORS.white}
+                  />
+
+                  <Text style={styles.primaryActionText}>I've paid</Text>
+                </>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {booking.payment_status === "refund_pending" && (
+        <View style={styles.waitingBox}>
+          <Ionicons name="time-outline" size={19} color="#9A6700" />
+
+          <View style={styles.waitingContent}>
+            <Text style={styles.waitingTitle}>Refund pending</Text>
+
+            <Text style={styles.waitingText}>
+              Your refund is still being processed.
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {booking.payment_status === "refunded" && (
+        <View style={styles.refundedBox}>
+          <Ionicons name="checkmark-circle" size={19} color={COLORS.primary} />
+
+          <Text style={styles.refundedText}>Refund completed</Text>
+        </View>
+      )}
+    </Pressable>
+  );
+});
+
+function PaymentDetailRow({
+  label,
+  value,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
+  return (
+    <View
+      style={[styles.paymentDetailRow, !last && styles.paymentDetailBorder]}
+    >
+      <Text style={styles.paymentDetailLabel}>{label}</Text>
+
+      <Text style={styles.paymentDetailValue} numberOfLines={1}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+/* ============================================================
+   MAIN SCREEN
+   ============================================================ */
+
 export default function BookingsScreen() {
   const { language, t } = useLanguage();
-
+  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
   const isDesktopWeb = Platform.OS === "web" && width >= 900;
@@ -111,9 +572,29 @@ export default function BookingsScreen() {
         ? "om-ET-u-ca-gregory"
         : "en-US-u-ca-gregory";
 
-  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>(
+    () => bookingsCache ?? [],
+  );
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(bookingsCache === null);
+
+  const [refreshing, setRefreshing] = useState(false);
+
+  const [activeSection, setActiveSection] =
+    useState<BookingSection>("upcoming");
+
+  const [search, setSearch] = useState("");
+
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  const [bookingSortBy, setBookingSortBy] = useState<BookingSort>("upcoming");
+
+  const [bookingStatusFilter, setBookingStatusFilter] =
+    useState<BookingFilter>("all");
+
+  const [calendarVisible, setCalendarVisible] = useState(false);
+
+  const [bookingFilterVisible, setBookingFilterVisible] = useState(false);
 
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
 
@@ -123,20 +604,8 @@ export default function BookingsScreen() {
 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const [search, setSearch] = useState("");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [calendarVisible, setCalendarVisible] = useState(false);
-  const [bookingFilterVisible, setBookingFilterVisible] = useState(false);
-
-  const [bookingSortBy, setBookingSortBy] = useState<"upcoming" | "latest">(
-    "upcoming",
-  );
-
-  const [bookingStatusFilter, setBookingStatusFilter] = useState<
-    "all" | "confirmed" | "payment_required" | "waitlisted"
-  >("all");
   useEffect(() => {
     if (!successMessage) {
       return;
@@ -149,336 +618,328 @@ export default function BookingsScreen() {
     return () => clearTimeout(timer);
   }, [successMessage]);
 
-  useFocusEffect(
-    useCallback(() => {
-      fetchBookings();
-    }, []),
+  /* ==========================================================
+     FETCH + CACHE
+     ========================================================== */
+
+  const fetchBookings = useCallback(
+    async (options?: { showLoading?: boolean; refresh?: boolean }) => {
+      const showLoading = options?.showLoading ?? false;
+
+      const refresh = options?.refresh ?? false;
+
+      if (showLoading && bookingsCache === null) {
+        setLoading(true);
+      }
+
+      if (refresh) {
+        setRefreshing(true);
+      }
+
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        const user = session?.user;
+
+        if (!user) {
+          bookingsCache = [];
+          setBookings([]);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from("bookings")
+          .select(
+            `
+              id,
+              status,
+              price_paid,
+              payment_status,
+              payment_offer_expires_at,
+              created_at,
+              games (
+                id,
+                title,
+                organizer,
+                area,
+                distance,
+                time,
+                format,
+                skill,
+                price,
+                image_url,
+                starts_at,
+                ends_at,
+                status,
+                payment_method,
+                payment_provider,
+                payment_phone,
+                payment_account_name
+              )
+            `,
+          )
+          .eq("user_id", user.id)
+          .order("created_at", {
+            ascending: false,
+          });
+
+        if (error) {
+          throw error;
+        }
+
+        const nextBookings = (data ?? []) as unknown as Booking[];
+
+        bookingsCache = nextBookings;
+        setBookings(nextBookings);
+      } catch (error: any) {
+        console.log("Bookings error:", error?.message ?? error);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [],
   );
 
-  async function fetchBookings() {
-    setLoading(true);
+  useFocusEffect(
+    useCallback(() => {
+      void fetchBookings({
+        showLoading: bookingsCache === null,
+      });
+    }, [fetchBookings]),
+  );
 
-    try {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+  /* ==========================================================
+     UPCOMING / HISTORY COUNTS
+     ========================================================== */
 
-      const user = session?.user;
+  const sectionCounts = useMemo(() => {
+    const now = Date.now();
 
-      if (!user) {
-        console.log("Booking user error: No session user");
+    let upcoming = 0;
+    let history = 0;
 
-        setBookings([]);
-
-        return;
+    for (const booking of bookings) {
+      if (!booking.games?.starts_at) {
+        continue;
       }
 
-      const { data, error } = await supabase
-
-        .from("bookings")
-
-        .select(
-          `
-
-          id,
-
-          status,
-
-          price_paid,
-
-          payment_status,
-
-          payment_offer_expires_at,
-
-          created_at,
-
-          games (
-
-            id,
-
-            title,
-
-            organizer,
-
-            area,
-
-            distance,
-
-            time,
-
-            format,
-
-            skill,
-
-            price,
-
-            image_url,
-
-            starts_at,
-
-            ends_at,
-
-            status,
-
-            payment_method,
-
-            payment_provider,
-
-            payment_phone,
-
-            payment_account_name
-
-          )
-
-        `,
-        )
-
-        .eq("user_id", user.id)
-
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.log("Bookings error:", error.message);
-
-        setBookings([]);
-
-        return;
+      if (isHistoryBooking(booking, now)) {
+        history += 1;
+      } else {
+        upcoming += 1;
       }
-
-      setBookings((data || []) as unknown as Booking[]);
-    } finally {
-      setLoading(false);
     }
-  }
+
+    return {
+      upcoming,
+      history,
+    };
+  }, [bookings]);
+
+  /* ==========================================================
+     SEARCH + FILTER + SORT
+     ========================================================== */
 
   const visibleBookings = useMemo(() => {
     const now = Date.now();
+
     const query = search.trim().toLocaleLowerCase();
 
-    // Standard app-style search:
-    // - instant from the first character
-    // - case-insensitive
-    // - searches only fields a player naturally expects
-    // - ranks title/area matches first
-    if (query) {
-      return bookings
-        .filter((booking) => {
-          const game = booking.games;
+    const filtered = bookings.filter((booking) => {
+      const game = booking.games;
 
-          if (!game?.starts_at) {
-            return false;
-          }
+      if (!game?.starts_at) {
+        return false;
+      }
 
-          if (
-            booking.status === "cancelled_by_player" ||
-            booking.status === "cancelled_by_organizer"
-          ) {
-            return false;
-          }
+      const history = isHistoryBooking(booking, now);
 
-          const gameEndTime = game.ends_at
-            ? new Date(game.ends_at).getTime()
-            : new Date(game.starts_at).getTime();
+      if (activeSection === "upcoming" && history) {
+        return false;
+      }
 
-          if (gameEndTime < now) {
-            return false;
-          }
+      if (activeSection === "history" && !history) {
+        return false;
+      }
 
-          const title = (game.title ?? "").toLocaleLowerCase();
-          const area = (game.area ?? "").toLocaleLowerCase();
-          const organizer = (game.organizer ?? "").toLocaleLowerCase();
+      if (selectedDate && getAddisDateKey(game.starts_at) !== selectedDate) {
+        return false;
+      }
 
-          return (
-            title.includes(query) ||
-            area.includes(query) ||
-            organizer.includes(query)
-          );
-        })
-        .sort((a, b) => {
-          const aTitle = (a.games?.title ?? "").toLocaleLowerCase();
-          const bTitle = (b.games?.title ?? "").toLocaleLowerCase();
-          const aArea = (a.games?.area ?? "").toLocaleLowerCase();
-          const bArea = (b.games?.area ?? "").toLocaleLowerCase();
+      if (!matchesBookingFilter(booking, bookingStatusFilter)) {
+        return false;
+      }
 
-          const rank = (title: string, area: string) => {
-            if (title.startsWith(query)) return 0;
-            if (area.startsWith(query)) return 1;
-            if (title.includes(query)) return 2;
-            if (area.includes(query)) return 3;
-            return 4;
-          };
-
-          const rankDifference = rank(aTitle, aArea) - rank(bTitle, bArea);
-
-          if (rankDifference !== 0) {
-            return rankDifference;
-          }
-
-          const aTime = a.games?.starts_at
-            ? new Date(a.games.starts_at).getTime()
-            : Number.MAX_SAFE_INTEGER;
-
-          const bTime = b.games?.starts_at
-            ? new Date(b.games.starts_at).getTime()
-            : Number.MAX_SAFE_INTEGER;
-
-          return aTime - bTime;
-        });
-    }
-
-    // Normal Bookings browsing when there is no search query.
-    return bookings
-      .filter((booking) => {
-        const game = booking.games;
-
-        if (!game?.starts_at) {
-          return false;
-        }
-
-        if (
-          booking.status === "cancelled_by_player" ||
-          booking.status === "cancelled_by_organizer"
-        ) {
-          return false;
-        }
-
-        const gameEndTime = game.ends_at
-          ? new Date(game.ends_at).getTime()
-          : new Date(game.starts_at).getTime();
-
-        if (gameEndTime < now) {
-          return false;
-        }
-
-        if (selectedDate && getAddisDateKey(game.starts_at) !== selectedDate) {
-          return false;
-        }
-
-        if (
-          bookingStatusFilter === "confirmed" &&
-          booking.status !== "confirmed"
-        ) {
-          return false;
-        }
-
-        if (
-          bookingStatusFilter === "payment_required" &&
-          !(
-            booking.status === "pending_payment" &&
-            booking.payment_status === "pending"
-          )
-        ) {
-          return false;
-        }
-
-        if (
-          bookingStatusFilter === "waitlisted" &&
-          booking.status !== "waitlisted"
-        ) {
-          return false;
-        }
-
+      if (!query) {
         return true;
-      })
-      .sort((a, b) => {
-        const aTime = a.games?.starts_at
-          ? new Date(a.games.starts_at).getTime()
-          : Number.MAX_SAFE_INTEGER;
-
-        const bTime = b.games?.starts_at
-          ? new Date(b.games.starts_at).getTime()
-          : Number.MAX_SAFE_INTEGER;
-
-        return bookingSortBy === "latest" ? bTime - aTime : aTime - bTime;
-      });
-  }, [bookings, search, selectedDate, bookingStatusFilter, bookingSortBy]);
-
-  async function submitOrganizerPayment(booking: Booking) {
-    if (
-      !booking.games ||
-      booking.games.payment_method !== "organizer" ||
-      booking.status !== "pending_payment" ||
-      booking.payment_status === "submitted"
-    ) {
-      return;
-    }
-
-    setSubmittingId(booking.id);
-
-    try {
-      const { data, error } = await supabase.rpc("submit_organizer_payment", {
-        p_booking_id: booking.id,
-
-        p_player_reference: null,
-      });
-
-      if (error) {
-        throw error;
       }
 
-      if (!data?.success) {
-        throw new Error(t("bookings.paymentCouldNotBeSubmitted"));
+      const title = (game.title ?? "").toLocaleLowerCase();
+
+      const area = (game.area ?? "").toLocaleLowerCase();
+
+      const organizer = (game.organizer ?? "").toLocaleLowerCase();
+
+      return (
+        title.includes(query) ||
+        area.includes(query) ||
+        organizer.includes(query)
+      );
+    });
+
+    return filtered.sort((a, b) => {
+      if (query) {
+        const aTitle = (a.games?.title ?? "").toLocaleLowerCase();
+
+        const bTitle = (b.games?.title ?? "").toLocaleLowerCase();
+
+        const aArea = (a.games?.area ?? "").toLocaleLowerCase();
+
+        const bArea = (b.games?.area ?? "").toLocaleLowerCase();
+
+        const rank = (title: string, area: string) => {
+          if (title.startsWith(query)) {
+            return 0;
+          }
+
+          if (area.startsWith(query)) {
+            return 1;
+          }
+
+          if (title.includes(query)) {
+            return 2;
+          }
+
+          if (area.includes(query)) {
+            return 3;
+          }
+
+          return 4;
+        };
+
+        const rankDifference = rank(aTitle, aArea) - rank(bTitle, bArea);
+
+        if (rankDifference !== 0) {
+          return rankDifference;
+        }
       }
 
-      await fetchBookings();
-    } catch (error: any) {
-      console.log("Submit organizer payment error:", error?.message || error);
+      const aTime = a.games?.starts_at
+        ? new Date(a.games.starts_at).getTime()
+        : 0;
 
-      if (Platform.OS === "web") {
-        window.alert(error?.message || t("bookings.couldNotSubmitPayment"));
+      const bTime = b.games?.starts_at
+        ? new Date(b.games.starts_at).getTime()
+        : 0;
+
+      if (activeSection === "history") {
+        return bTime - aTime;
       }
-    } finally {
-      setSubmittingId(null);
-    }
-  }
 
-  function openCancellationModal(booking: Booking) {
+      return bookingSortBy === "latest" ? bTime - aTime : aTime - bTime;
+    });
+  }, [
+    activeSection,
+    bookingSortBy,
+    bookingStatusFilter,
+    bookings,
+    search,
+    selectedDate,
+  ]);
+
+  /* ==========================================================
+     ORGANIZER PAYMENT
+     ========================================================== */
+
+  const submitOrganizerPayment = useCallback(
+    async (booking: Booking) => {
+      if (
+        !booking.games ||
+        booking.games.payment_method !== "organizer" ||
+        booking.status !== "pending_payment" ||
+        booking.payment_status !== "pending" ||
+        submittingId !== null
+      ) {
+        return;
+      }
+
+      setSubmittingId(booking.id);
+
+      try {
+        const { data, error } = await supabase.rpc("submit_organizer_payment", {
+          p_booking_id: booking.id,
+          p_player_reference: null,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (!data?.success) {
+          throw new Error(t("bookings.paymentCouldNotBeSubmitted"));
+        }
+
+        setSuccessMessage("Payment submitted");
+
+        await fetchBookings();
+      } catch (error: any) {
+        console.log("Submit organizer payment error:", error?.message ?? error);
+
+        if (Platform.OS === "web") {
+          window.alert(error?.message || t("bookings.couldNotSubmitPayment"));
+        }
+      } finally {
+        setSubmittingId(null);
+      }
+    },
+    [fetchBookings, submittingId, t],
+  );
+
+  /* ==========================================================
+     CANCELLATION
+     ========================================================== */
+
+  const openCancellationModal = useCallback((booking: Booking) => {
     if (booking.status !== "confirmed" && booking.status !== "waitlisted") {
       return;
     }
 
     setErrorMessage(null);
-
     setSelectedBooking(booking);
-  }
+  }, []);
 
-  function closeCancellationModal() {
+  const closeCancellationModal = useCallback(() => {
     if (cancellingId !== null) {
       return;
     }
 
     setSelectedBooking(null);
-
     setErrorMessage(null);
-  }
+  }, [cancellingId]);
 
-  async function cancelSelectedBooking() {
-    if (!selectedBooking?.games) {
+  const cancelSelectedBooking = useCallback(async () => {
+    if (!selectedBooking?.games || cancellingId !== null) {
       return;
     }
 
     const booking = selectedBooking;
-
-    const wasWaitlisted = booking.status === "waitlisted";
-
     const game = booking.games;
 
-    if (!game) {
-      return;
-    }
+    const wasWaitlisted = booking.status === "waitlisted";
 
     if (booking.status !== "confirmed" && booking.status !== "waitlisted") {
       return;
     }
 
     setErrorMessage(null);
-
     setCancellingId(booking.id);
 
     try {
       const { data: cancelData, error: cancelError } = await supabase.rpc(
         "cancel_booking",
-
         {
           p_game_id: Number(game.id),
         },
@@ -489,23 +950,14 @@ export default function BookingsScreen() {
       }
 
       /*
-
-       * IMPORTANT
-
+       * IMPORTANT:
        *
-
-       * Organizer-direct payments must NEVER call the old
-
-       * Chapa refund function.
-
+       * Organizer-direct payments must never
+       * use the legacy Chapa refund flow.
        *
-
-       * The player paid the organizer directly through Telebirr,
-
-       * so any refund must be handled by the organizer.
-
+       * The player paid the organizer directly,
+       * so the organizer handles that refund.
        */
-
       if (
         game.payment_method !== "organizer" &&
         booking.payment_status === "paid" &&
@@ -513,7 +965,6 @@ export default function BookingsScreen() {
       ) {
         const { error: refundError } = await supabase.functions.invoke(
           "refund-chapa-payment",
-
           {
             body: {
               booking_id: booking.id,
@@ -527,7 +978,6 @@ export default function BookingsScreen() {
       }
 
       setSelectedBooking(null);
-
       setErrorMessage(null);
 
       setSuccessMessage(
@@ -538,7 +988,7 @@ export default function BookingsScreen() {
 
       await fetchBookings();
     } catch (error: any) {
-      console.log("Cancel booking error:", error?.message || error);
+      console.log("Cancel booking error:", error?.message ?? error);
 
       const message = String(error?.message ?? "").toLowerCase();
 
@@ -554,15 +1004,13 @@ export default function BookingsScreen() {
     } finally {
       setCancellingId(null);
     }
-  }
+  }, [cancellingId, fetchBookings, selectedBooking, t]);
 
-  const selectedIsWaitlisted = selectedBooking?.status === "waitlisted";
+  /* ==========================================================
+     CONTACT ORGANIZER
+     ========================================================== */
 
-  const selectedIsOrganizerPaid =
-    selectedBooking?.games?.payment_method === "organizer" &&
-    selectedBooking?.payment_status === "paid";
-
-  async function callOrganizer(phone: string | null) {
+  const callOrganizer = useCallback(async (phone: string | null) => {
     if (!phone) {
       return;
     }
@@ -572,49 +1020,125 @@ export default function BookingsScreen() {
     } catch (error) {
       console.log("Could not open phone dialer:", error);
     }
-  }
+  }, []);
 
-  return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      {successMessage && (
-        <View style={styles.successBanner}>
-          <View style={styles.successBannerIcon}>
-            <Ionicons name="checkmark" size={20} color="#F7F8FA" />
-          </View>
+  /* ==========================================================
+     FLATLIST ITEM
+     ========================================================== */
 
-          <View style={styles.successBannerContent}>
-            <Text style={styles.successBannerText}>{successMessage}</Text>
+  const renderBooking = useCallback(
+    ({ item }: { item: Booking }) => (
+      <BookingCard
+        booking={item}
+        dateLocale={dateLocale}
+        t={t}
+        history={activeSection === "history"}
+        cancelling={cancellingId === item.id}
+        submitting={submittingId === item.id}
+        onCancel={openCancellationModal}
+        onSubmitPayment={submitOrganizerPayment}
+        onCallOrganizer={callOrganizer}
+      />
+    ),
+    [
+      activeSection,
+      callOrganizer,
+      cancellingId,
+      dateLocale,
+      openCancellationModal,
+      submitOrganizerPayment,
+      submittingId,
+      t,
+    ],
+  );
+  /* ==========================================================
+     HEADER
+     ========================================================== */
 
-            <Text style={styles.successBannerSubtext}>
-              {t("bookings.successUpdateSaved")}
-            </Text>
-          </View>
-
-          <Pressable onPress={() => setSuccessMessage(null)} hitSlop={10}>
-            <Ionicons name="close" size={22} color="#14201B" />
-          </Pressable>
-
-          <View style={styles.successBannerProgress} />
-        </View>
-      )}
-      <ScrollView
-        style={styles.container}
-
-        contentContainerStyle={[
-          styles.content,
-
-          isDesktopWeb && styles.contentDesktop,
-        ]}
-
-        showsVerticalScrollIndicator={false}
-      >
+  const listHeader = useMemo(
+    () => (
+      <>
         <Text style={styles.title}>{t("bookings.title")}</Text>
 
         <Text style={styles.subtitle}>{t("bookings.subtitle")}</Text>
 
+        <View style={styles.sectionTabs}>
+          <Pressable
+            style={[
+              styles.sectionTab,
+              activeSection === "upcoming" && styles.sectionTabActive,
+            ]}
+            onPress={() => {
+              setActiveSection("upcoming");
+              setSelectedDate(null);
+            }}
+          >
+            <Text
+              style={[
+                styles.sectionTabText,
+                activeSection === "upcoming" && styles.sectionTabTextActive,
+              ]}
+            >
+              Upcoming
+            </Text>
+
+            <View
+              style={[
+                styles.sectionCount,
+                activeSection === "upcoming" && styles.sectionCountActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.sectionCountText,
+                  activeSection === "upcoming" && styles.sectionCountTextActive,
+                ]}
+              >
+                {sectionCounts.upcoming}
+              </Text>
+            </View>
+          </Pressable>
+
+          <Pressable
+            style={[
+              styles.sectionTab,
+              activeSection === "history" && styles.sectionTabActive,
+            ]}
+            onPress={() => {
+              setActiveSection("history");
+              setSelectedDate(null);
+            }}
+          >
+            <Text
+              style={[
+                styles.sectionTabText,
+                activeSection === "history" && styles.sectionTabTextActive,
+              ]}
+            >
+              History
+            </Text>
+
+            <View
+              style={[
+                styles.sectionCount,
+                activeSection === "history" && styles.sectionCountActive,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.sectionCountText,
+                  activeSection === "history" && styles.sectionCountTextActive,
+                ]}
+              >
+                {sectionCounts.history}
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+
         <View style={styles.searchRow}>
           <View style={styles.searchBox}>
-            <Ionicons name="search" size={21} color="#66766F" />
+            <Ionicons name="search" size={20} color={COLORS.textSecondary} />
 
             <TextInput
               value={search}
@@ -625,6 +1149,9 @@ export default function BookingsScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               selectionColor={COLORS.primary}
+              returnKeyType="search"
+              blurOnSubmit
+              onSubmitEditing={Keyboard.dismiss}
             />
 
             {search.length > 0 && (
@@ -633,7 +1160,7 @@ export default function BookingsScreen() {
                 onPress={() => setSearch("")}
                 hitSlop={8}
               >
-                <Ionicons name="close" size={23} color={COLORS.textSecondary} />
+                <Ionicons name="close" size={21} color={COLORS.textSecondary} />
               </Pressable>
             )}
 
@@ -651,7 +1178,7 @@ export default function BookingsScreen() {
             >
               <Ionicons
                 name="options-outline"
-                size={21}
+                size={20}
                 color={
                   bookingStatusFilter !== "all" || bookingSortBy !== "upcoming"
                     ? COLORS.white
@@ -672,8 +1199,8 @@ export default function BookingsScreen() {
           >
             <Ionicons
               name="calendar-outline"
-              size={21}
-              color={selectedDate ? "#F7F8FA" : COLORS.primary}
+              size={20}
+              color={selectedDate ? COLORS.white : COLORS.primary}
             />
           </Pressable>
         </View>
@@ -682,469 +1209,201 @@ export default function BookingsScreen() {
           <View style={styles.activeDateFilter}>
             <Ionicons
               name="calendar-outline"
-              size={16}
+              size={15}
               color={COLORS.primary}
             />
 
             <Text style={styles.activeDateFilterText}>
-              {language === "am"
-                ? formatEthiopianDate(`${selectedDate}T12:00:00Z`, language)
-                : language === "om"
-                  ? formatEthiopianDate(`${selectedDate}T12:00:00Z`, language)
-                  : new Intl.DateTimeFormat("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                      timeZone: "UTC",
-                    }).format(new Date(`${selectedDate}T12:00:00Z`))}
+              {language === "en"
+                ? new Intl.DateTimeFormat("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  }).format(new Date(`${selectedDate}T12:00:00Z`))
+                : formatEthiopianDate(`${selectedDate}T12:00:00Z`, language)}
             </Text>
 
             <Pressable onPress={() => setSelectedDate(null)}>
               <Ionicons
                 name="close-circle"
-                size={20}
+                size={19}
                 color={COLORS.textMuted}
               />
             </Pressable>
           </View>
         )}
+      </>
+    ),
+    [
+      activeSection,
+      bookingSortBy,
+      bookingStatusFilter,
+      language,
+      search,
+      sectionCounts.history,
+      sectionCounts.upcoming,
+      selectedDate,
+      t,
+    ],
+  );
 
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
-
-            <Text style={styles.loadingText}>{t("bookings.loading")}</Text>
-          </View>
-        ) : visibleBookings.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIcon}>
-              <Ionicons
-                name="calendar-outline"
-
-                size={34}
-
-                color={COLORS.primary}
-              />
-            </View>
-
-            <Text style={styles.emptyTitle}>{t("bookings.noBookings")}</Text>
-
-            <Text style={styles.emptyText}>
-              {t("bookings.noBookingsDescription")}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.bookingList}>
-            {visibleBookings.map((booking) => {
-              const game = booking.games;
-
-              if (!game) {
-                return null;
-              }
-
-              const isWaitlisted = booking.status === "waitlisted";
-
-              const isConfirmed = booking.status === "confirmed";
-
-              const isPendingPayment = booking.status === "pending_payment";
-
-              const cancelledByPlayer =
-                booking.status === "cancelled_by_player";
-
-              const cancelledByOrganizer =
-                booking.status === "cancelled_by_organizer";
-
-              const isCancelled = cancelledByPlayer || cancelledByOrganizer;
-
-              const isOrganizerPayment = game.payment_method === "organizer";
-
-              const paymentPending =
-                isOrganizerPayment &&
-                isPendingPayment &&
-                booking.payment_status === "pending";
-
-              const paymentSubmitted =
-                isOrganizerPayment &&
-                isPendingPayment &&
-                booking.payment_status === "submitted";
-
-              const paymentConfirmed =
-                isOrganizerPayment &&
-                isConfirmed &&
-                booking.payment_status === "paid";
-
-              const isCancelling = cancellingId === booking.id;
-
-              const isSubmitting = submittingId === booking.id;
-
-              const statusInfo = getStatusInfo(
-                booking.status,
-
-                booking.payment_status,
-
-                isOrganizerPayment,
-
-                t,
-              );
-
-              const compactStatusLabel = isCancelled
-                ? statusInfo.label
-                : paymentPending
-                  ? t("bookings.paymentRequired")
-                  : paymentSubmitted
-                    ? "Payment sent"
-                    : isWaitlisted
-                      ? t("bookings.waitlisted")
-                      : game.payment_method === "venue" && isConfirmed
-                        ? t("bookings.payAtVenue")
-                        : isConfirmed || paymentConfirmed
-                          ? t("bookings.confirmed")
-                          : game.payment_method === "free"
-                            ? t("bookings.free")
-                            : statusInfo.label;
-
-              const compactStatusIcon = isCancelled
-                ? "close-circle-outline"
-                : paymentPending
-                  ? "card-outline"
-                  : paymentSubmitted || isWaitlisted
-                    ? "time-outline"
-                    : game.payment_method === "venue" && isConfirmed
-                      ? "location-outline"
-                      : "checkmark-circle";
-
-              const compactStatusWarning =
-                paymentPending || paymentSubmitted || isWaitlisted;
-
-              return (
-                <Pressable
-                  key={booking.id}
-                  style={[styles.card, isCancelled && styles.cancelledCard]}
-                  onPress={() => router.push(`/game/${game.id}`)}
-                  disabled={isCancelled}
-                  accessibilityRole="button"
-                  accessibilityLabel={game.title}
-                >
-                  <View style={styles.bookingThumb}>
-                    {game.image_url ? (
-                      <>
-                        <Image
-                          source={{ uri: game.image_url }}
-                          style={[styles.image, isCancelled && styles.cancelledImage]}
-                          resizeMode="cover"
-                        />
-                        <View style={styles.imageShade} />
-                      </>
-                    ) : (
-                      <View
-                        style={[
-                          styles.gameFallback,
-                          isCancelled && styles.cancelledImage,
-                        ]}
-                      >
-                        <View style={styles.gameFallbackCenterCircle} />
-                        <View style={styles.gameFallbackCenterLine} />
-                        <Ionicons
-                          name="football-outline"
-                          size={42}
-                          color="rgba(255,255,255,0.14)"
-                        />
-                        <View style={styles.gameFallbackAccent} />
-                      </View>
-                    )}
-
-                    <View
-                      style={[
-                        styles.bookingStatusPill,
-                        compactStatusWarning && styles.bookingStatusPillWarning,
-                        isCancelled && styles.bookingStatusPillCancelled,
-                      ]}
-                    >
-                      <Ionicons
-                        name={compactStatusIcon}
-                        size={15}
-                        color={
-                          isCancelled
-                            ? COLORS.danger
-                            : compactStatusWarning
-                              ? "#9A6700"
-                              : COLORS.white
-                        }
-                      />
-                      <Text
-                        style={[
-                          styles.bookingStatusPillText,
-                          compactStatusWarning && styles.bookingStatusPillTextWarning,
-                          isCancelled && styles.bookingStatusPillTextCancelled,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {compactStatusLabel}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.bookingCardBody}>
-                    <View style={styles.bookingCardTopRow}>
-                      <Text style={styles.bookingCardTitle} numberOfLines={1}>
-                        {game.title}
-                      </Text>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={20}
-                        color={COLORS.textSecondary}
-                      />
-                    </View>
-
-                    <View style={styles.bookingMetaRow}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={16}
-                        color={COLORS.textSecondary}
-                      />
-                      <Text style={styles.bookingCardDate} numberOfLines={1}>
-                        {game.starts_at
-                          ? `${formatCompactAddisDate(game.starts_at, dateLocale)} · ${formatAddisStartTime(game.starts_at, dateLocale)}`
-                          : game.time}
-                      </Text>
-                    </View>
-
-                    <View style={styles.bookingMetaRow}>
-                      <Ionicons
-                        name="location-outline"
-                        size={17}
-                        color={COLORS.textSecondary}
-                      />
-                      <Text style={styles.bookingCardLocation} numberOfLines={1}>
-                        {game.area}
-                      </Text>
-                    </View>
-
-                    <Text style={styles.bookingCardPrice}>
-                      {game.payment_method === "free"
-                        ? t("bookings.free")
-                        : `${booking.price_paid ?? game.price} ETB`}
-                    </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-
-        <View style={{ height: 30 }} />
-      </ScrollView>
-      <Modal
-        visible={calendarVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCalendarVisible(false)}
-      >
-        <Pressable
-          style={styles.calendarOverlay}
-          onPress={() => setCalendarVisible(false)}
-        >
-          <Pressable
-            style={styles.calendarModal}
-            onPress={(event) => event.stopPropagation()}
-          >
-            <View style={styles.calendarHeader}>
-              <View>
-                <Text style={styles.calendarTitle}>
-                  {t("bookings.chooseDate")}
-                </Text>
-
-                <Text style={styles.calendarSubtitle}>
-                  {t("bookings.calendarSubtitle")}
-                </Text>
-              </View>
-
-              <Pressable
-                style={styles.calendarCloseButton}
-                onPress={() => setCalendarVisible(false)}
-              >
-                <Ionicons name="close" size={24} color={COLORS.text} />
-              </Pressable>
-            </View>
-
-            {language === "en" ? (
-              <Calendar
-                minDate={getTodayAddisKey()}
-                current={selectedDate ?? undefined}
-                onDayPress={(day) => {
-                  setSelectedDate(day.dateString);
-                  setCalendarVisible(false);
-                }}
-                markedDates={
-                  selectedDate
-                    ? {
-                        [selectedDate]: {
-                          selected: true,
-                        },
-                      }
-                    : {}
-                }
-                enableSwipeMonths
-                theme={{
-                  calendarBackground: COLORS.surface,
-                  backgroundColor: COLORS.surface,
-                  monthTextColor: COLORS.text,
-                  dayTextColor: COLORS.text,
-                  textDisabledColor: COLORS.textMuted,
-                  arrowColor: COLORS.primary,
-                  todayTextColor: COLORS.primary,
-                  selectedDayBackgroundColor: COLORS.primary,
-                  selectedDayTextColor: COLORS.background,
-                  textMonthFontWeight: "800",
-                  textDayFontWeight: "500",
-                  textDayHeaderFontWeight: "700",
-                }}
-              />
-            ) : (
-              <EthiopianCalendar
-                language={language}
-                selectedDate={selectedDate}
-                onSelect={(gregorianDate) => {
-                  setSelectedDate(gregorianDate);
-                  setCalendarVisible(false);
-                }}
-              />
-            )}
-          </Pressable>
-        </Pressable>
-      </Modal>
-      <Modal
-        visible={bookingFilterVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setBookingFilterVisible(false)}
-      >
-        <View style={styles.bookingFilterOverlay}>
-          <View style={styles.bookingFilterSheet}>
-            <View style={styles.bookingFilterHeader}>
-              <Text style={styles.bookingFilterTitle}>
-                {t("bookings.filterBookings")}
-              </Text>
-
-              <Pressable onPress={() => setBookingFilterVisible(false)}>
-                <Ionicons name="close" size={26} color={COLORS.text} />
-              </Pressable>
-            </View>
-
-            {/* SORT BY */}
-
-            <Text style={styles.bookingFilterSectionTitle}>
-              {t("bookings.sortBy")}
-            </Text>
-
-            <View style={styles.bookingFilterChipRow}>
-              {[
-                ["upcoming", t("bookings.upcomingFirst")],
-                ["latest", t("bookings.latestFirst")],
-              ].map(([value, label]) => {
-                const active = bookingSortBy === value;
-
-                return (
-                  <Pressable
-                    key={value}
-                    style={[
-                      styles.bookingFilterChip,
-                      active && styles.bookingFilterChipActive,
-                    ]}
-                    onPress={() =>
-                      setBookingSortBy(value as "upcoming" | "latest")
-                    }
-                  >
-                    <Text
-                      style={[
-                        styles.bookingFilterChipText,
-                        active && styles.bookingFilterChipTextActive,
-                      ]}
-                    >
-                      {label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* STATUS */}
-
-            <Text style={styles.bookingFilterSectionTitle}>
-              {t("bookings.status")}
-            </Text>
-
-            <View style={styles.bookingFilterChipRow}>
-              {[
-                ["all", t("bookings.allBookings")],
-                ["confirmed", t("bookings.confirmed")],
-                ["payment_required", t("bookings.paymentRequired")],
-                ["waitlisted", t("bookings.waitlisted")],
-              ].map(([value, label]) => {
-                const active = bookingStatusFilter === value;
-
-                return (
-                  <Pressable
-                    key={value}
-                    style={[
-                      styles.bookingFilterChip,
-                      active && styles.bookingFilterChipActive,
-                    ]}
-                    onPress={() =>
-                      setBookingStatusFilter(
-                        value as
-                          | "all"
-                          | "confirmed"
-                          | "payment_required"
-                          | "waitlisted",
-                      )
-                    }
-                  >
-                    <Text
-                      style={[
-                        styles.bookingFilterChipText,
-                        active && styles.bookingFilterChipTextActive,
-                      ]}
-                    >
-                      {label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {/* ACTIONS */}
-
-            <View style={styles.bookingFilterActions}>
-              <Pressable
-                style={styles.bookingResetButton}
-                onPress={() => {
-                  setBookingSortBy("upcoming");
-                  setBookingStatusFilter("all");
-                }}
-              >
-                <Text style={styles.bookingResetText}>
-                  {t("bookings.reset")}
-                </Text>
-              </Pressable>
-
-              <Pressable
-                style={styles.bookingShowButton}
-                onPress={() => setBookingFilterVisible(false)}
-              >
-                <Text style={styles.bookingShowButtonText}>
-                  {t("bookings.showBookings")}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
+  const emptyComponent = useMemo(
+    () => (
+      <View style={styles.emptyContainer}>
+        <View style={styles.emptyIcon}>
+          <Ionicons
+            name={
+              activeSection === "history" ? "time-outline" : "calendar-outline"
+            }
+            size={32}
+            color={COLORS.primary}
+          />
         </View>
-      </Modal>
+
+        <Text style={styles.emptyTitle}>
+          {search
+            ? "No matching bookings"
+            : activeSection === "history"
+              ? "No booking history"
+              : t("bookings.noBookings")}
+        </Text>
+
+        <Text style={styles.emptyText}>
+          {search
+            ? "Try another game, location, or organizer."
+            : activeSection === "history"
+              ? "Completed and cancelled bookings will appear here."
+              : t("bookings.noBookingsDescription")}
+        </Text>
+      </View>
+    ),
+    [activeSection, search, t],
+  );
+
+  const selectedIsWaitlisted = selectedBooking?.status === "waitlisted";
+
+  const selectedIsOrganizerPaid =
+    selectedBooking?.games?.payment_method === "organizer" &&
+    selectedBooking?.payment_status === "paid";
+
+  /* ==========================================================
+     SCREEN
+     ========================================================== */
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      {successMessage && (
+        <View
+          style={[
+            styles.successBanner,
+            {
+              top: insets.top + 8,
+            },
+          ]}
+        >
+          <View style={styles.successBannerIcon}>
+            <Ionicons name="checkmark" size={20} color={COLORS.white} />
+          </View>
+
+          <View style={styles.successBannerContent}>
+            <Text style={styles.successBannerText}>{successMessage}</Text>
+
+            <Text style={styles.successBannerSubtext}>
+              {t("bookings.successUpdateSaved")}
+            </Text>
+          </View>
+
+          <Pressable onPress={() => setSuccessMessage(null)} hitSlop={10}>
+            <Ionicons name="close" size={21} color={COLORS.text} />
+          </Pressable>
+        </View>
+      )}
+
+      {loading ? (
+        <View style={styles.firstLoad}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+
+          <Text style={styles.loadingText}>{t("bookings.loading")}</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={visibleBookings}
+          renderItem={renderBooking}
+          keyExtractor={(item) => String(item.id)}
+          ListHeaderComponent={listHeader}
+          ListEmptyComponent={emptyComponent}
+          ItemSeparatorComponent={() => <View style={styles.cardGap} />}
+          style={styles.container}
+          contentContainerStyle={[
+            styles.content,
+            isDesktopWeb && styles.contentDesktop,
+            visibleBookings.length === 0 && styles.emptyListContent,
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() =>
+                void fetchBookings({
+                  refresh: true,
+                })
+              }
+              tintColor={COLORS.primary}
+            />
+          }
+          initialNumToRender={6}
+          maxToRenderPerBatch={8}
+          updateCellsBatchingPeriod={50}
+          windowSize={7}
+          removeClippedSubviews={Platform.OS !== "web"}
+        />
+      )}
+
+      {/* ============================================
+          CALENDAR
+          ============================================ */}
+
+      <CalendarModal
+        visible={calendarVisible}
+        language={language}
+        selectedDate={selectedDate}
+        t={t}
+        onClose={() => setCalendarVisible(false)}
+        onSelect={(date) => {
+          setSelectedDate(date);
+          setCalendarVisible(false);
+        }}
+      />
+
+      {/* ============================================
+          FILTERS
+          ============================================ */}
+
+      <FilterModal
+        visible={bookingFilterVisible}
+        t={t}
+        sortBy={bookingSortBy}
+        statusFilter={bookingStatusFilter}
+        onSortChange={setBookingSortBy}
+        onStatusChange={setBookingStatusFilter}
+        onReset={() => {
+          setBookingSortBy("upcoming");
+          setBookingStatusFilter("all");
+        }}
+        onClose={() => setBookingFilterVisible(false)}
+      />
+
+      {/* ============================================
+          CANCELLATION
+          ============================================ */}
 
       <Modal
         visible={selectedBooking !== null}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={closeCancellationModal}
       >
         <Pressable
@@ -1155,8 +1414,6 @@ export default function BookingsScreen() {
             style={styles.cancelModalSheet}
             onPress={(event) => event.stopPropagation()}
           >
-            <View style={styles.cancelModalHandle} />
-
             <Text style={styles.cancelModalTitle}>
               {selectedIsWaitlisted
                 ? t("bookings.leaveWaitlistQuestion")
@@ -1179,7 +1436,7 @@ export default function BookingsScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.keepBookingButton,
-                pressed && styles.cancelModalButtonPressed,
+                pressed && styles.actionPressed,
               ]}
               onPress={closeCancellationModal}
               disabled={cancellingId !== null}
@@ -1192,13 +1449,13 @@ export default function BookingsScreen() {
             <Pressable
               style={({ pressed }) => [
                 styles.confirmCancelButton,
-                pressed && styles.cancelModalButtonPressed,
+                pressed && styles.actionPressed,
               ]}
               onPress={cancelSelectedBooking}
               disabled={cancellingId !== null}
             >
               {cancellingId !== null ? (
-                <ActivityIndicator size="small" color="#D92D20" />
+                <ActivityIndicator size="small" color={COLORS.danger} />
               ) : (
                 <Text style={styles.confirmCancelButtonText}>
                   {selectedIsWaitlisted
@@ -1214,212 +1471,215 @@ export default function BookingsScreen() {
   );
 }
 
-function getStatusInfo(
-  status: BookingStatus,
+/* ============================================================
+   FILTER MODAL
+   ============================================================ */
 
-  paymentStatus: PaymentStatus,
+function FilterModal({
+  visible,
+  t,
+  sortBy,
+  statusFilter,
+  onSortChange,
+  onStatusChange,
+  onReset,
+  onClose,
+}: {
+  visible: boolean;
+  t: Translate;
+  sortBy: BookingSort;
+  statusFilter: BookingFilter;
+  onSortChange: (value: BookingSort) => void;
+  onStatusChange: (value: BookingFilter) => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.filterOverlay}>
+        <View style={styles.filterSheet}>
+          <View style={styles.filterHeader}>
+            <Text style={styles.filterTitle}>
+              {t("bookings.filterBookings")}
+            </Text>
 
-  organizerPayment: boolean,
+            <Pressable style={styles.modalCloseButton} onPress={onClose}>
+              <Ionicons name="close" size={23} color={COLORS.text} />
+            </Pressable>
+          </View>
 
-  t: (key: string) => string,
-): {
-  label: string;
+          <Text style={styles.filterSectionTitle}>{t("bookings.sortBy")}</Text>
 
-  color: string;
+          <View style={styles.filterChipRow}>
+            {[
+              ["upcoming", t("bookings.upcomingFirst")],
+              ["latest", t("bookings.latestFirst")],
+            ].map(([value, label]) => {
+              const active = sortBy === value;
 
-  backgroundColor: string;
+              return (
+                <Pressable
+                  key={value}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                  onPress={() => onSortChange(value as BookingSort)}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      active && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-  icon: "checkmark-circle" | "time-outline" | "close-circle";
-} {
-  if (status === "pending_payment") {
-    if (organizerPayment && paymentStatus === "submitted") {
-      return {
-        label: t("bookings.waitingForOrganizer"),
+          <Text style={styles.filterSectionTitle}>{t("bookings.status")}</Text>
 
-        color: "#9A6700",
+          <View style={styles.filterChipRow}>
+            {[
+              ["all", t("bookings.allBookings")],
+              ["confirmed", t("bookings.confirmed")],
+              ["payment_required", t("bookings.paymentRequired")],
+              ["waitlisted", t("bookings.waitlisted")],
+            ].map(([value, label]) => {
+              const active = statusFilter === value;
 
-        backgroundColor: "#FFF8E7",
+              return (
+                <Pressable
+                  key={value}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                  onPress={() => onStatusChange(value as BookingFilter)}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      active && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-        icon: "time-outline",
-      };
-    }
+          <View style={styles.filterActions}>
+            <Pressable style={styles.resetButton} onPress={onReset}>
+              <Text style={styles.resetButtonText}>{t("bookings.reset")}</Text>
+            </Pressable>
 
-    return {
-      label: t("bookings.organizerPaymentRequired"),
-
-      color: "#9A6700",
-
-      backgroundColor: "#FFF8E7",
-
-      icon: "time-outline",
-    };
-  }
-
-  if (status === "confirmed") {
-    return {
-      label: t("bookings.confirmed"),
-
-      color: "#F7F8FA",
-
-      backgroundColor: "#15803D",
-
-      icon: "checkmark-circle",
-    };
-  }
-
-  if (status === "waitlisted") {
-    return {
-      label: t("bookings.waitlisted"),
-
-      color: "#9A6700",
-
-      backgroundColor: "#FFF8E7",
-
-      icon: "time-outline",
-    };
-  }
-
-  if (status === "cancelled_by_organizer") {
-    return {
-      label: t("bookings.gameCancelled"),
-
-      color: "#C13515",
-
-      backgroundColor: "#FFF1F1",
-
-      icon: "close-circle",
-    };
-  }
-
-  return {
-    label: t("bookings.cancelled"),
-
-    color: COLORS.textSecondary,
-
-    backgroundColor: "#F0F5F3",
-
-    icon: "close-circle",
-  };
+            <Pressable style={styles.showButton} onPress={onClose}>
+              <Text style={styles.showButtonText}>
+                {t("bookings.showBookings")}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
 }
 
-function getAddisDateKey(timestamp: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Africa/Addis_Ababa",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(timestamp));
+/* ============================================================
+   CALENDAR MODAL
+   ============================================================ */
+
+function CalendarModal({
+  visible,
+  language,
+  selectedDate,
+  t,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  language: "en" | "am" | "om";
+  selectedDate: string | null;
+  t: Translate;
+  onClose: () => void;
+  onSelect: (date: string) => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.calendarOverlay} onPress={onClose}>
+        <Pressable
+          style={styles.calendarModal}
+          onPress={(event) => event.stopPropagation()}
+        >
+          <View style={styles.calendarHeader}>
+            <View style={styles.calendarHeading}>
+              <Text style={styles.calendarTitle}>
+                {t("bookings.chooseDate")}
+              </Text>
+
+              <Text style={styles.calendarSubtitle}>
+                {t("bookings.calendarSubtitle")}
+              </Text>
+            </View>
+
+            <Pressable style={styles.modalCloseButton} onPress={onClose}>
+              <Ionicons name="close" size={23} color={COLORS.text} />
+            </Pressable>
+          </View>
+
+          {language === "en" ? (
+            <Calendar
+              current={selectedDate ?? undefined}
+              onDayPress={(day) => onSelect(day.dateString)}
+              markedDates={
+                selectedDate
+                  ? {
+                      [selectedDate]: {
+                        selected: true,
+                      },
+                    }
+                  : {}
+              }
+              enableSwipeMonths
+              theme={{
+                calendarBackground: COLORS.surface,
+                backgroundColor: COLORS.surface,
+                monthTextColor: COLORS.text,
+                dayTextColor: COLORS.text,
+                textDisabledColor: COLORS.textMuted,
+                arrowColor: COLORS.primary,
+                todayTextColor: COLORS.primary,
+                selectedDayBackgroundColor: COLORS.primary,
+                selectedDayTextColor: COLORS.white,
+                textMonthFontWeight: "800",
+                textDayFontWeight: "500",
+                textDayHeaderFontWeight: "700",
+              }}
+            />
+          ) : (
+            <EthiopianCalendar
+              language={language}
+              selectedDate={selectedDate}
+              onSelect={onSelect}
+            />
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 }
 
-function formatEthiopianDate(timestamp: string, language: "en" | "am" | "om") {
-  const date = new Date(timestamp);
-
-  // Read Gregorian date using Addis Ababa timezone
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Africa/Addis_Ababa",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(date);
-
-  const year = Number(parts.find((p) => p.type === "year")?.value);
-  const month = Number(parts.find((p) => p.type === "month")?.value);
-  const day = Number(parts.find((p) => p.type === "day")?.value);
-
-  // Gregorian -> Julian Day Number
-  const a = Math.floor((14 - month) / 12);
-  const y = year + 4800 - a;
-  const m = month + 12 * a - 3;
-
-  const jdn =
-    day +
-    Math.floor((153 * m + 2) / 5) +
-    365 * y +
-    Math.floor(y / 4) -
-    Math.floor(y / 100) +
-    Math.floor(y / 400) -
-    32045;
-
-  // Julian Day Number -> Ethiopian calendar
-  const r = (jdn - 1724221) % 1461;
-  const n = (r % 365) + 365 * Math.floor(r / 1460);
-
-  const ethYear =
-    4 * Math.floor((jdn - 1724221) / 1461) +
-    Math.floor(r / 365) -
-    Math.floor(r / 1460) +
-    1;
-
-  const ethMonth = Math.floor(n / 30) + 1;
-  const ethDay = (n % 30) + 1;
-
-  const amharicMonths = [
-    "መስከረም",
-    "ጥቅምት",
-    "ኅዳር",
-    "ታኅሣሥ",
-    "ጥር",
-    "የካቲት",
-    "መጋቢት",
-    "ሚያዝያ",
-    "ግንቦት",
-    "ሰኔ",
-    "ሐምሌ",
-    "ነሐሴ",
-    "ጳጉሜ",
-  ];
-
-  const oromoMonths = [
-    "Fulbaana",
-    "Onkololeessa",
-    "Sadaasa",
-    "Muddee",
-    "Amajjii",
-    "Guraandhala",
-    "Bitooteessa",
-    "Ebla",
-    "Caamsaa",
-    "Waxabajjii",
-    "Adooleessa",
-    "Hagayya",
-    "Qaammee",
-  ];
-
-  const months = language === "om" ? oromoMonths : amharicMonths;
-
-  return `${months[ethMonth - 1]} ${ethDay} ${ethYear}`;
-}
-
-function formatCompactAddisDate(timestamp: string, locale: string) {
-  return new Intl.DateTimeFormat(locale, {
-    timeZone: "Africa/Addis_Ababa",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(timestamp));
-}
-
-function formatAddisStartTime(timestamp: string, locale: string) {
-  return new Intl.DateTimeFormat(locale, {
-    timeZone: "Africa/Addis_Ababa",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(timestamp));
-}
-
-function formatAddisDate(timestamp: string, locale: string) {
-  return new Intl.DateTimeFormat(locale, {
-    timeZone: "Africa/Addis_Ababa",
-
-    weekday: "short",
-
-    month: "short",
-
-    day: "numeric",
-
-    year: "numeric",
-  }).format(new Date(timestamp));
-}
+/* ============================================================
+   DATE HELPERS
+   ============================================================ */
 
 type EthiopianLanguage = "am" | "om";
 
@@ -1455,9 +1715,37 @@ const OROMO_MONTHS = [
   "Qaammee",
 ];
 
+function getAddisDateKey(timestamp: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Addis_Ababa",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function formatCompactAddisDate(timestamp: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: "Africa/Addis_Ababa",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
+}
+
+function formatAddisStartTime(timestamp: string, locale: string) {
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: "Africa/Addis_Ababa",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
 function gregorianToJdn(year: number, month: number, day: number) {
   const a = Math.floor((14 - month) / 12);
+
   const y = year + 4800 - a;
+
   const m = month + 12 * a - 3;
 
   return (
@@ -1473,6 +1761,7 @@ function gregorianToJdn(year: number, month: number, day: number) {
 
 function jdnToEthiopian(jdn: number) {
   const r = (jdn - 1724221) % 1461;
+
   const n = (r % 365) + 365 * Math.floor(r / 1460);
 
   return {
@@ -1481,35 +1770,10 @@ function jdnToEthiopian(jdn: number) {
       Math.floor(r / 365) -
       Math.floor(r / 1460) +
       1,
+
     month: Math.floor(n / 30) + 1,
+
     day: (n % 30) + 1,
-  };
-}
-
-function getEthiopianDate(
-  timestamp: string | Date,
-  language: EthiopianLanguage,
-) {
-  const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
-
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Africa/Addis_Ababa",
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(date);
-
-  const year = Number(parts.find((part) => part.type === "year")?.value);
-  const month = Number(parts.find((part) => part.type === "month")?.value);
-  const day = Number(parts.find((part) => part.type === "day")?.value);
-
-  const eth = jdnToEthiopian(gregorianToJdn(year, month, day));
-  const months = language === "om" ? OROMO_MONTHS : AMHARIC_MONTHS;
-
-  return {
-    ...eth,
-    monthName: months[eth.month - 1],
-    label: `${months[eth.month - 1]} ${eth.day} ${eth.year}`,
   };
 }
 
@@ -1526,17 +1790,28 @@ function ethiopianToJdn(year: number, month: number, day: number) {
 
 function jdnToGregorian(jdn: number) {
   const a = jdn + 32044;
+
   const b = Math.floor((4 * a + 3) / 146097);
+
   const c = a - Math.floor((146097 * b) / 4);
+
   const d = Math.floor((4 * c + 3) / 1461);
+
   const e = c - Math.floor((1461 * d) / 4);
+
   const m = Math.floor((5 * e + 2) / 153);
 
   const day = e - Math.floor((153 * m + 2) / 5) + 1;
+
   const month = m + 3 - 12 * Math.floor(m / 10);
+
   const year = 100 * b + d - 4800 + Math.floor(m / 10);
 
-  return { year, month, day };
+  return {
+    year,
+    month,
+    day,
+  };
 }
 
 function ethiopianToGregorianKey(year: number, month: number, day: number) {
@@ -1546,6 +1821,41 @@ function ethiopianToGregorianKey(year: number, month: number, day: number) {
     2,
     "0",
   )}-${String(gregorian.day).padStart(2, "0")}`;
+}
+
+function getEthiopianDate(
+  timestamp: string | Date,
+  language: EthiopianLanguage,
+) {
+  const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Addis_Ababa",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(date);
+
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+
+  const day = Number(parts.find((part) => part.type === "day")?.value);
+
+  const eth = jdnToEthiopian(gregorianToJdn(year, month, day));
+
+  const months = language === "om" ? OROMO_MONTHS : AMHARIC_MONTHS;
+
+  return {
+    ...eth,
+    monthName: months[eth.month - 1],
+
+    label: `${months[eth.month - 1]} ${eth.day} ${eth.year}`,
+  };
+}
+
+function formatEthiopianDate(timestamp: string, language: EthiopianLanguage) {
+  return getEthiopianDate(timestamp, language).label;
 }
 
 function getTodayAddisKey() {
@@ -1560,6 +1870,10 @@ function getTodayAddisKey() {
 function isEthiopianLeapYear(year: number) {
   return year % 4 === 3;
 }
+
+/* ============================================================
+   ETHIOPIAN CALENDAR
+   ============================================================ */
 
 function EthiopianCalendar({
   language,
@@ -1576,22 +1890,15 @@ function EthiopianCalendar({
   );
 
   const [viewYear, setViewYear] = useState(todayEthiopian.year);
+
   const [viewMonth, setViewMonth] = useState(todayEthiopian.month);
 
   const months = language === "om" ? OROMO_MONTHS : AMHARIC_MONTHS;
 
   const weekdays =
     language === "om"
-      ? [
-          "Wiixata",
-          "Kibxata",
-          "Roobii",
-          "Kamiisa",
-          "Jimaata",
-          "Sanbata",
-          "Dilbata",
-        ]
-      : ["ሰኞ", "ማክሰኞ", "ረቡዕ", "ሐሙስ", "ዓርብ", "ቅዳሜ", "እሁድ"];
+      ? ["Wi", "Ki", "Ro", "Ka", "Ji", "Sa", "Di"]
+      : ["ሰ", "ማ", "ረ", "ሐ", "ዓ", "ቅ", "እ"];
 
   const daysInMonth =
     viewMonth <= 12 ? 30 : isEthiopianLeapYear(viewYear) ? 6 : 5;
@@ -1607,7 +1914,13 @@ function EthiopianCalendar({
 
   const cells: Array<number | null> = [
     ...Array(firstWeekday).fill(null),
-    ...Array.from({ length: daysInMonth }, (_, index) => index + 1),
+
+    ...Array.from(
+      {
+        length: daysInMonth,
+      },
+      (_, index) => index + 1,
+    ),
   ];
 
   while (cells.length < 42) {
@@ -1619,6 +1932,7 @@ function EthiopianCalendar({
   function previousMonth() {
     if (viewMonth === 1) {
       setViewMonth(13);
+
       setViewYear((year) => year - 1);
     } else {
       setViewMonth((month) => month - 1);
@@ -1628,6 +1942,7 @@ function EthiopianCalendar({
   function nextMonth() {
     if (viewMonth === 13) {
       setViewMonth(1);
+
       setViewYear((year) => year + 1);
     } else {
       setViewMonth((month) => month + 1);
@@ -1671,14 +1986,13 @@ function EthiopianCalendar({
           );
 
           const selected = gregorianKey === selectedDate;
+
           const isToday = gregorianKey === today;
-          const disabled = gregorianKey < today;
 
           return (
             <Pressable
               key={gregorianKey}
               style={styles.ethCell}
-              disabled={disabled}
               onPress={() => onSelect(gregorianKey)}
             >
               <View
@@ -1688,7 +2002,6 @@ function EthiopianCalendar({
                   style={[
                     styles.ethDayText,
                     isToday && styles.ethToday,
-                    disabled && styles.ethDisabled,
                     selected && styles.ethSelectedText,
                   ]}
                 >
@@ -1703,315 +2016,158 @@ function EthiopianCalendar({
   );
 }
 
+/* ============================================================
+   STYLES
+   ============================================================ */
+
 const styles = StyleSheet.create({
-  successBanner: {
-    position: "absolute",
-    top: 12,
-    left: 16,
-    right: 16,
-    zIndex: 100,
-    elevation: 10,
-
-    flexDirection: "row",
-    alignItems: "center",
-
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#F0F5F3",
-    borderRadius: 18,
-
-    paddingHorizontal: 16,
-    paddingTop: 15,
-    paddingBottom: 18,
-
-    boxShadow: "0 6px 14px rgba(0, 0, 0, 0.16)",
-
-    overflow: "hidden",
-  },
-
-  successBannerIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#22C55E",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-
-  successBannerContent: {
+  safeArea: {
     flex: 1,
-    paddingRight: 10,
+    backgroundColor: COLORS.background,
   },
 
-  successBannerText: {
-    color: "#14201B",
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: "900",
-  },
-
-  successBannerSubtext: {
-    color: "#66766F",
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "500",
-    marginTop: 2,
-  },
-
-  successBannerProgress: {
-    position: "absolute",
-    left: 0,
-    bottom: 0,
-    width: "65%",
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: "#22C55E",
-  },
-  cancelModalOverlay: {
+  container: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.58)",
-    justifyContent: "flex-end",
+    backgroundColor: COLORS.background,
   },
 
-  cancelModalSheet: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingTop: 12,
+  content: {
+    paddingHorizontal: 18,
+    paddingTop: 14,
     paddingBottom: 34,
   },
 
-  cancelModalHandle: {
-    width: 44,
-    height: 5,
-    borderRadius: 999,
-    backgroundColor: "#CBD8D2",
+  contentDesktop: {
+    width: "100%",
+    maxWidth: 900,
     alignSelf: "center",
-    marginBottom: 28,
+    paddingHorizontal: 28,
+    paddingTop: 24,
   },
 
-  cancelModalTitle: {
-    color: "#14201B",
-    fontSize: 27,
+  title: {
+    color: COLORS.text,
+    fontSize: 32,
     fontWeight: "900",
-    letterSpacing: -0.5,
+    letterSpacing: -0.8,
   },
 
-  cancelModalMessage: {
-    color: "#66766F",
-    fontSize: 16,
-    lineHeight: 24,
-    marginTop: 12,
-    marginBottom: 28,
+  subtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 15,
+    marginTop: 3,
+    marginBottom: 16,
   },
 
-  keepBookingButton: {
-    minHeight: 56,
-    borderRadius: 17,
+  sectionTabs: {
+    flexDirection: "row",
+    backgroundColor: COLORS.surfaceAlt,
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 14,
+  },
+
+  sectionTab: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+
+  sectionTabActive: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    elevation: 1,
+  },
+
+  sectionTabText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  sectionTabTextActive: {
+    color: COLORS.text,
+    fontWeight: "900",
+  },
+
+  sectionCount: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.border,
+  },
+
+  sectionCountActive: {
     backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
   },
 
-  keepBookingButtonText: {
-    color: "#F7F8FA",
-    fontSize: 17,
-    fontWeight: "900",
-  },
-
-  confirmCancelButton: {
-    minHeight: 52,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 8,
-  },
-
-  confirmCancelButtonText: {
-    color: "#D92D20",
-    fontSize: 16,
+  sectionCountText: {
+    color: COLORS.textSecondary,
+    fontSize: 11,
     fontWeight: "800",
   },
 
-  cancelModalButtonPressed: {
-    opacity: 0.7,
-  },
-  bookingFilterOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.35)",
-    justifyContent: "flex-end",
-  },
-
-  bookingFilterSheet: {
-    backgroundColor: COLORS.surface,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 30,
-  },
-
-  bookingFilterHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
-  },
-
-  bookingFilterTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-
-  bookingFilterSectionTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: COLORS.text,
-    marginTop: 18,
-    marginBottom: 6,
-  },
-
-  bookingFilterOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.border,
-  },
-
-  bookingFilterOptionText: {
-    fontSize: 16,
-    color: COLORS.text,
-  },
-
-  bookingFilterChipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 6,
-  },
-
-  bookingFilterChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 11,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
-  },
-
-  bookingFilterChipActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-
-  bookingFilterChipText: {
-    color: "#66766F",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  bookingFilterChipTextActive: {
-    color: "#F7F8FA",
-    fontWeight: "700",
-  },
-
-  bookingFilterActions: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 24,
-  },
-
-  bookingResetButton: {
-    flex: 1,
-    height: 50,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  bookingResetText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: COLORS.primary,
-  },
-
-  bookingShowButton: {
-    flex: 2,
-    height: 50,
-    borderRadius: 12,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  bookingShowButtonText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: COLORS.background,
-  },
-
-  bookingFilterButtonActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+  sectionCountTextActive: {
+    color: COLORS.white,
   },
 
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginBottom: 18,
+    marginBottom: 14,
   },
 
   searchBox: {
     flex: 1,
-    height: 52,
+    height: 50,
     borderWidth: 1,
-    borderColor: "#DDE6E2",
-    borderRadius: 26,
+    borderColor: COLORS.border,
+    borderRadius: 25,
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 16,
-    paddingRight: 6,
+    paddingLeft: 15,
+    paddingRight: 5,
     backgroundColor: COLORS.surface,
-    boxShadow: "0 2px 4px rgba(0, 0, 0, 0.05)",
     elevation: 1,
   },
 
   searchInput: {
     flex: 1,
-    marginLeft: 9,
-    marginRight: 4,
-    color: "#14201B",
-    fontSize: 15,
     minWidth: 0,
+    marginLeft: 9,
+    marginRight: 3,
+    color: COLORS.text,
+    fontSize: 15,
   },
 
   searchActionButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
   },
 
   searchDivider: {
     width: StyleSheet.hairlineWidth,
-    height: 26,
-    backgroundColor: "#DDE6E2",
-    marginHorizontal: 4,
+    height: 24,
+    backgroundColor: COLORS.border,
+    marginHorizontal: 3,
   },
 
   searchFilterButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2021,9 +2177,9 @@ const styles = StyleSheet.create({
   },
 
   calendarButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.surface,
@@ -2044,11 +2200,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 20,
-    paddingLeft: 12,
-    paddingRight: 8,
-    paddingVertical: 8,
-    marginBottom: 18,
+    borderRadius: 18,
+    paddingLeft: 11,
+    paddingRight: 7,
+    paddingVertical: 7,
+    marginBottom: 14,
   },
 
   activeDateFilterText: {
@@ -2057,11 +2213,611 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  cardGap: {
+    height: 12,
+  },
+
+  card: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    overflow: "hidden",
+    elevation: 2,
+  },
+
+  cardPressed: {
+    opacity: 0.94,
+  },
+
+  cardCancelled: {
+    borderColor: "#E2D6D4",
+    opacity: 0.88,
+  },
+
+  cardMainRow: {
+    flexDirection: "row",
+    padding: 12,
+  },
+
+  thumbnail: {
+    width: 96,
+    height: 96,
+    borderRadius: 14,
+    overflow: "hidden",
+    backgroundColor: "#12333A",
+  },
+
+  thumbnailImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  thumbnailFallback: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#12333A",
+    overflow: "hidden",
+  },
+
+  fallbackLine: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: "50%",
+    width: 1,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+
+  fallbackCircle: {
+    position: "absolute",
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.09)",
+  },
+
+  cancelledImage: {
+    opacity: 0.45,
+  },
+
+  cardContent: {
+    flex: 1,
+    minWidth: 0,
+    paddingLeft: 12,
+  },
+
+  cardTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  cardTitle: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: "900",
+    letterSpacing: -0.25,
+  },
+
+  statusPill: {
+    alignSelf: "flex-start",
+    minHeight: 25,
+    maxWidth: "100%",
+    marginTop: 6,
+    marginBottom: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#15803D",
+  },
+
+  statusPillWarning: {
+    backgroundColor: "#FFF1C7",
+  },
+
+  statusPillDanger: {
+    backgroundColor: "#FFF1F1",
+  },
+
+  statusPillNeutral: {
+    backgroundColor: COLORS.surfaceAlt,
+  },
+
+  statusPillText: {
+    flexShrink: 1,
+    color: COLORS.white,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: "800",
+  },
+
+  statusPillTextWarning: {
+    color: "#9A6700",
+  },
+
+  statusPillTextDanger: {
+    color: COLORS.danger,
+  },
+
+  statusPillTextNeutral: {
+    color: COLORS.textSecondary,
+  },
+
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    minHeight: 19,
+  },
+
+  metaText: {
+    flex: 1,
+    color: COLORS.textSecondary,
+    fontSize: 12.5,
+    lineHeight: 17,
+  },
+
+  priceText: {
+    color: COLORS.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "900",
+    marginTop: 5,
+  },
+
+  paymentBox: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E9D39A",
+    backgroundColor: "#FFF9E8",
+    padding: 12,
+  },
+
+  paymentBoxHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+  },
+
+  paymentIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#FFF1C7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  paymentHeaderText: {
+    flex: 1,
+  },
+
+  paymentTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: "900",
+  },
+
+  paymentDescription: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+
+  paymentDetails: {
+    marginTop: 10,
+    backgroundColor: COLORS.surface,
+    borderRadius: 11,
+    paddingHorizontal: 11,
+  },
+
+  paymentDetailRow: {
+    minHeight: 39,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+
+  paymentDetailBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.border,
+  },
+
+  paymentDetailLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+  },
+
+  paymentDetailValue: {
+    flex: 1,
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: "800",
+    textAlign: "right",
+  },
+
+  paymentActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 10,
+  },
+
+  secondaryAction: {
+    minHeight: 43,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+
+  secondaryActionText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  primaryAction: {
+    flex: 1,
+    minHeight: 43,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+
+  primaryActionText: {
+    color: COLORS.white,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  waitingBox: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#E9D39A",
+    backgroundColor: "#FFF8E7",
+    padding: 11,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+  },
+
+  waitingContent: {
+    flex: 1,
+  },
+
+  waitingTitle: {
+    color: "#9A6700",
+    fontSize: 13,
+    fontWeight: "900",
+  },
+
+  waitingText: {
+    color: "#8A7450",
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 2,
+  },
+
+  refundedBox: {
+    marginHorizontal: 12,
+    marginBottom: 12,
+    borderRadius: 13,
+    backgroundColor: "#F0F5F3",
+    padding: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  refundedText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  cancelAction: {
+    alignSelf: "flex-start",
+    marginLeft: 12,
+    marginBottom: 11,
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingRight: 10,
+  },
+
+  cancelActionText: {
+    color: COLORS.danger,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
+  actionPressed: {
+    opacity: 0.65,
+  },
+
+  actionDisabled: {
+    opacity: 0.6,
+  },
+
+  firstLoad: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.background,
+  },
+
+  loadingText: {
+    color: COLORS.textSecondary,
+    fontSize: 15,
+    marginTop: 13,
+  },
+
+  emptyListContent: {
+    flexGrow: 1,
+  },
+
+  emptyContainer: {
+    alignItems: "center",
+    paddingTop: 70,
+    paddingHorizontal: 28,
+    paddingBottom: 60,
+  },
+
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+
+  emptyTitle: {
+    color: COLORS.text,
+    fontSize: 20,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+
+  emptyText: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    textAlign: "center",
+  },
+
+  successBanner: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    zIndex: 100,
+    elevation: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 18,
+    paddingHorizontal: 15,
+    paddingVertical: 14,
+  },
+
+  successBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#22C55E",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 11,
+  },
+
+  successBannerContent: {
+    flex: 1,
+    paddingRight: 8,
+  },
+
+  successBannerText: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+
+  successBannerSubtext: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  filterOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.38)",
+    justifyContent: "flex-end",
+  },
+
+  filterSheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 30,
+  },
+
+  filterHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+
+  filterTitle: {
+    color: COLORS.text,
+    fontSize: 21,
+    fontWeight: "900",
+  },
+
+  filterSectionTitle: {
+    color: COLORS.text,
+    fontSize: 14,
+    fontWeight: "800",
+    marginTop: 18,
+    marginBottom: 7,
+  },
+
+  filterChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 9,
+  },
+
+  filterChip: {
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 21,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+
+  filterChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+
+  filterChipText: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  filterChipTextActive: {
+    color: COLORS.white,
+    fontWeight: "800",
+  },
+
+  filterActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 24,
+  },
+
+  resetButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  resetButtonText: {
+    color: COLORS.primary,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
+  showButton: {
+    flex: 2,
+    height: 50,
+    borderRadius: 13,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  showButtonText: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
+  modalCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
+  calendarOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+  },
+
+  calendarModal: {
+    width: "100%",
+    maxWidth: 440,
+    alignSelf: "center",
+    backgroundColor: COLORS.surface,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: 18,
+  },
+
+  calendarHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+
+  calendarHeading: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  calendarTitle: {
+    color: COLORS.text,
+    fontSize: 21,
+    fontWeight: "900",
+  },
+
+  calendarSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    marginTop: 3,
+  },
+
   ethMonthHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 14,
+    marginBottom: 13,
   },
 
   ethArrow: {
@@ -2097,32 +2853,28 @@ const styles = StyleSheet.create({
 
   ethCell: {
     width: "14.2857%",
-    height: 48,
+    height: 46,
     alignItems: "center",
     justifyContent: "center",
   },
 
   ethDayCircle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
 
   ethDayText: {
     color: COLORS.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
   },
 
   ethToday: {
     color: COLORS.primary,
-  },
-
-  ethDisabled: {
-    color: COLORS.textMuted,
-    opacity: 0.5,
+    fontWeight: "900",
   },
 
   ethSelected: {
@@ -2130,702 +2882,66 @@ const styles = StyleSheet.create({
   },
 
   ethSelectedText: {
-    color: COLORS.background,
-    fontWeight: "800",
+    color: COLORS.white,
+    fontWeight: "900",
   },
 
-  calendarOverlay: {
+  cancelModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 20,
   },
 
-  calendarModal: {
+  cancelModalSheet: {
     width: "100%",
-    maxWidth: 440,
-    alignSelf: "center",
+    maxWidth: 420,
     backgroundColor: COLORS.surface,
     borderRadius: 24,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 18,
+    padding: 24,
   },
 
-  calendarHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-
-  calendarTitle: {
+  cancelModalTitle: {
     color: COLORS.text,
-    fontSize: 21,
-    fontWeight: "800",
-  },
-
-  calendarSubtitle: {
-    color: COLORS.textSecondary,
-    fontSize: 13,
-    marginTop: 3,
-  },
-
-  calendarCloseButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.background,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
-  },
-
-  contentDesktop: {
-    width: "100%",
-    maxWidth: 1180,
-    alignSelf: "center",
-    paddingHorizontal: 28,
-    paddingTop: 24,
-  },
-
-  title: {
-    color: COLORS.text,
-    fontSize: 32,
-    fontWeight: "800",
-    letterSpacing: -0.8,
-  },
-
-  subtitle: {
-    color: "#66766F",
-    fontSize: 15,
-    marginTop: 3,
-    marginBottom: 18,
-  },
-
-  loadingContainer: {
-    alignItems: "center",
-    paddingTop: 80,
-  },
-
-  loadingText: {
-    color: "#66766F",
-    fontSize: 15,
-    marginTop: 14,
-  },
-
-  emptyContainer: {
-    alignItems: "center",
-    paddingTop: 80,
-    paddingHorizontal: 30,
-  },
-
-  emptyIcon: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: COLORS.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 18,
-  },
-
-  emptyTitle: {
-    color: COLORS.text,
-    fontSize: 21,
-    fontWeight: "800",
-  },
-
-  emptyText: {
-    color: "#66766F",
-    fontSize: 15,
-    marginTop: 7,
-    textAlign: "center",
-  },
-
-  /* BOOKING CARDS */
-
-  bookingList: {
-    gap: 14,
-  },
-
-  card: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    overflow: "hidden",
-    boxShadow: "0 4px 14px rgba(20, 32, 27, 0.06)",
-    elevation: 2,
-  },
-
-  cancelledCard: {
-    borderColor: "#E2D6D4",
-  },
-
-  bookingCardRow: {
-    flexDirection: "column",
-  },
-
-  bookingThumb: {
-    position: "relative",
-    width: "100%",
-    height: 118,
-    backgroundColor: "#12333A",
-    overflow: "hidden",
-  },
-
-  imageWrapper: {
-    position: "relative",
-    backgroundColor: "#12333A",
-  },
-
-  image: {
-    width: "100%",
-    height: "100%",
-  },
-
-  imagePlaceholder: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: COLORS.surfaceAlt,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  imageShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 15, 25, 0.08)",
-  },
-
-  gameFallback: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#12333A",
-    justifyContent: "center",
-    alignItems: "center",
-    overflow: "hidden",
-  },
-
-  gameFallbackCenterLine: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: "50%",
-    width: 1,
-    backgroundColor: "rgba(255,255,255,0.08)",
-  },
-
-  gameFallbackCenterCircle: {
-    position: "absolute",
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
-    top: "50%",
-    left: "50%",
-    marginLeft: -46,
-    marginTop: -46,
-  },
-
-  gameFallbackAccent: {
-    position: "absolute",
-    left: 18,
-    bottom: 16,
-    width: 30,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: COLORS.primary,
-  },
-
-  gameFallbackTitle: {
-    color: COLORS.white,
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: "800",
-  },
-
-  cancelledImage: {
-    opacity: 0.45,
-  },
-
-  bookingCardBody: {
-    paddingHorizontal: 16,
-    paddingTop: 13,
-    paddingBottom: 14,
-  },
-
-  bookingCardTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 8,
-  },
-
-  bookingCardTitle: {
-    flex: 1,
-    color: COLORS.text,
-    fontSize: 17,
-    lineHeight: 21,
-    fontWeight: "800",
-    letterSpacing: -0.25,
-  },
-
-  bookingMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-    minHeight: 23,
-  },
-
-  bookingCardDate: {
-    flex: 1,
-    color: COLORS.textSecondary,
-    fontSize: 14,
-    lineHeight: 19,
-    fontWeight: "600",
-  },
-
-  bookingCardLocation: {
-    flex: 1,
-    color: COLORS.textMuted,
-    fontSize: 14,
-    lineHeight: 19,
-  },
-
-  bookingCardBottomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-
-  bookingCardPrice: {
-    color: COLORS.text,
-    fontSize: 18,
-    lineHeight: 23,
+    fontSize: 26,
     fontWeight: "900",
-    marginTop: 9,
+    letterSpacing: -0.5,
   },
 
-  bookingStatusPill: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    maxWidth: "72%",
-    minHeight: 32,
-    flexDirection: "row",
+  cancelModalMessage: {
+    color: COLORS.textSecondary,
+    fontSize: 15,
+    lineHeight: 23,
+    marginTop: 11,
+    marginBottom: 25,
+  },
+
+  keepBookingButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: COLORS.primary,
-    zIndex: 2,
+    paddingHorizontal: 20,
   },
 
-  bookingStatusPillWarning: {
-    backgroundColor: "#FFF1C7",
-  },
-
-  bookingStatusPillCancelled: {
-    backgroundColor: "#FFF1F1",
-  },
-
-  bookingStatusPillText: {
-    flexShrink: 1,
+  keepBookingButtonText: {
     color: COLORS.white,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
+    fontSize: 16,
+    fontWeight: "900",
   },
 
-  bookingStatusPillTextWarning: {
-    color: "#9A6700",
+  confirmCancelButton: {
+    minHeight: 50,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 7,
   },
 
-  bookingStatusPillTextCancelled: {
+  confirmCancelButtonText: {
     color: COLORS.danger,
-  },
-
-  cardContent: {
-    paddingHorizontal: 16,
-    paddingTop: 13,
-    paddingBottom: 14,
-  },
-
-  /*
-   * Kept because existing code elsewhere may still reference
-   * these styles. Normal booking status now appears on the image.
-   */
-  statusRow: {
-    flexDirection: "row",
-    marginBottom: 10,
-  },
-
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    alignSelf: "flex-start",
-    gap: 5,
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-
-  statusText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
-  gameTitle: {
-    color: "#14201B",
-    fontSize: 19,
-    fontWeight: "700",
-    letterSpacing: -0.2,
-  },
-
-  cancelledGameTitle: {
-    color: "#C6CFCA",
-  },
-
-  organizer: {
-    color: "#66766F",
-    fontSize: 14,
-    marginTop: 1,
-    marginBottom: 8,
-  },
-
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 5,
-  },
-
-  infoText: {
-    color: "#66766F",
-    fontSize: 14,
-    flexShrink: 1,
-  },
-
-  bottomRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 12,
-  },
-
-  formatBadge: {
-    backgroundColor: "transparent",
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-  },
-
-  formatText: {
-    color: "#4A4A4A",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  price: {
-    color: "#14201B",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-
-  cancelledPrice: {
-    color: COLORS.textSecondary,
-  },
-
-  paymentSection: {
-    marginTop: 18,
-    backgroundColor: "#FFF9E8",
-    borderWidth: 1,
-    borderColor: "#765A00",
-    borderRadius: 16,
-    padding: 14,
-  },
-
-  paymentHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-  },
-
-  paymentTitle: {
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: "800",
-  },
-
-  paymentDescription: {
-    color: COLORS.textSecondary,
-    fontSize: 13,
-    lineHeight: 18,
-    marginTop: 3,
-  },
-
-  paymentAccountCard: {
-    marginTop: 14,
-    backgroundColor: COLORS.surface,
-    borderRadius: 13,
-    paddingHorizontal: 13,
-  },
-
-  paymentAccountRow: {
-    minHeight: 45,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-
-  paymentDivider: {
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
-
-  paymentLabel: {
-    color: COLORS.textSecondary,
-    fontSize: 13,
-  },
-
-  paymentValue: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  paymentAmount: {
-    color: COLORS.primary,
-    fontSize: 16,
-    fontWeight: "800",
-  },
-
-  paymentInstruction: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 12,
-  },
-
-  paidButton: {
-    height: 50,
-    borderRadius: 13,
-    backgroundColor: COLORS.primary,
-    marginTop: 13,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-
-  paidButtonText: {
-    color: COLORS.white,
     fontSize: 15,
     fontWeight: "800",
-  },
-
-  waitingPaymentNotice: {
-    marginTop: 14,
-    backgroundColor: "#FFF8E7",
-    borderWidth: 1,
-    borderColor: "#765A00",
-    borderRadius: 14,
-    paddingHorizontal: 13,
-    paddingVertical: 12,
-  },
-  waitingPaymentHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
-  waitingPaymentIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#D89A00", alignItems: "center", justifyContent: "center" },
-  waitingPaymentContent: { flex: 1, minWidth: 0 },
-  waitingPaymentTitle: { color: "#9A6700", fontSize: 14, fontWeight: "800" },
-  waitingPaymentText: { color: "#8A7450", fontSize: 12, lineHeight: 17, marginTop: 2 },
-  waitingPaymentDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#765A00", marginVertical: 10 },
-  waitingPaymentStatusRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-  waitingPaymentStatusText: { flex: 1, color: "#9A6700", fontSize: 13, lineHeight: 18, fontWeight: "700" },
-
-  confirmedPaymentNotice: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    backgroundColor: "#F0F5F3",
-    borderWidth: 1,
-    borderColor: "#B9E5CF",
-    borderRadius: 13,
-    padding: 13,
-    marginTop: 17,
-  },
-
-  confirmedPaymentTitle: {
-    color: "#00B77A",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-
-  confirmedPaymentText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    marginTop: 3,
-  },
-
-  venueNotice: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    backgroundColor: "#F0F5F3",
-    borderRadius: 13,
-    padding: 13,
-    marginTop: 17,
-  },
-
-  venueTitle: {
-    color: COLORS.primary,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-
-  venueText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    marginTop: 3,
-  },
-
-  refundNotice: {
-    backgroundColor: "#FFF8E7",
-    borderWidth: 1,
-    borderColor: "#765A00",
-    borderRadius: 13,
-    padding: 13,
-    marginTop: 17,
-  },
-
-  refundHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 9,
-  },
-
-  refundTitle: {
-    color: "#9A6700",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-
-  refundNoticeText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 3,
-  },
-
-  contactCard: {
-    marginTop: 13,
-    backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    padding: 12,
-  },
-
-  contactLabel: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-  },
-
-  contactValue: {
-    color: COLORS.text,
-    fontSize: 15,
-    fontWeight: "700",
-    marginTop: 3,
-  },
-
-  contactDivider: {
-    height: 1,
-    backgroundColor: COLORS.border,
-    marginVertical: 11,
-  },
-
-  contactPhone: {
-    color: COLORS.text,
-    fontSize: 17,
-    fontWeight: "800",
-    marginTop: 4,
-  },
-
-  callButton: {
-    height: 44,
-    borderRadius: 11,
-    backgroundColor: COLORS.primary,
-    marginTop: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-
-  callButtonText: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-
-  noContactText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 8,
-  },
-
-  historyNotice: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#F0F5F3",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 17,
-  },
-
-  historyNoticeText: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    lineHeight: 17,
-    flex: 1,
-  },
-
-  cancelButton: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 13,
-    paddingVertical: 5,
-    paddingRight: 8,
-  },
-
-  cancelText: {
-    color: "#C13515",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  disabledButton: {
-    opacity: 0.6,
   },
 });

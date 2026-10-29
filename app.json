@@ -7,13 +7,18 @@
     "icon": "./assets/images/icon.png",
     "scheme": "addisfootball",
     "userInterfaceStyle": "automatic",
+
     "ios": {
       "icon": "./assets/images/icon.png",
       "bundleIdentifier": "com.amanamico.addisfootball",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "LSApplicationQueriesSchemes": [
+          "telebirrcustomerApp"
+        ]
       }
     },
+
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
@@ -22,35 +27,39 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.amanamico.addisfootball"
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/images/icon.png"
     },
-   "plugins": [
-  "expo-router",
-  [
-    "expo-splash-screen",
-    {
-      "backgroundColor": "#071B3A",
-      "image": "./assets/images/icon.png",
-      "imageWidth": 160
-    }
-  ],
-  "expo-web-browser",
-  [
-    "expo-build-properties",
-    {
-      "android": {
-        "enableMinifyInReleaseBuilds": true,
-        "enableShrinkResourcesInReleaseBuilds": true
-      }
-    }
-  ]
-],
+
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#071B3A",
+          "image": "./assets/images/icon.png",
+          "imageWidth": 160
+        }
+      ],
+      "expo-web-browser",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true
+          }
+        }
+      ]
+    ],
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
+
     "extra": {
       "router": {},
       "eas": {

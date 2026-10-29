@@ -21,9 +21,7 @@ export default function Index() {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!active) {
-          return;
-        }
+        if (!active) return;
 
         if (!session?.user) {
           setIsLoggedIn(false);
@@ -33,7 +31,6 @@ export default function Index() {
         }
 
         setIsLoggedIn(true);
-
         await loadRole(session.user.id);
       } catch (error) {
         console.error("Error checking session:", error);
@@ -51,14 +48,18 @@ export default function Index() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!active) {
-        return;
-      }
+      if (!active) return;
 
       if (event === "SIGNED_OUT") {
         setIsLoggedIn(false);
         setRole("player");
         setLoading(false);
+        return;
+      }
+
+      if (event === "SIGNED_IN" && session?.user) {
+        setIsLoggedIn(true);
+        loadRole(session.user.id);
       }
     });
 
@@ -109,7 +110,10 @@ export default function Index() {
           justifyContent: "center",
         }}
       >
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator
+          size="large"
+          color={COLORS.primary}
+        />
       </View>
     );
   }
@@ -120,10 +124,6 @@ export default function Index() {
 
   if (role === "organizer") {
     return <Redirect href="/(organizer)" />;
-  }
-
-  if (role === "admin") {
-    return <Redirect href="/(tabs)" />;
   }
 
   return <Redirect href="/(tabs)" />;

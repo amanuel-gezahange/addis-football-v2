@@ -1,12 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Calendar } from "react-native-calendars";
+import * as Location from "expo-location";
 import { Modal } from "react-native";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -28,6 +31,8 @@ type Game = {
   organizer: string;
   area: string;
   distance: string | null;
+  latitude: number | null;
+  longitude: number | null;
   time: string;
   format: string;
   skill: string;
@@ -48,6 +53,10 @@ type Game = {
 type DiscoverGame = Game & {
   spotsLeft: number;
   image: string;
+};
+
+type DiscoverGameWithDistance = DiscoverGame & {
+  distanceKm: number | null;
 };
 
 type DateOption = {
@@ -74,6 +83,15 @@ const CITY_OPTIONS = [
   "Harar",
 ] as const;
 
+const GAME_DATE_FORMATTER = new Intl.DateTimeFormat("en-US-u-ca-gregory", {
+  timeZone: "Africa/Addis_Ababa",
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+});
+
+const discoverGamesCache: Record<string, DiscoverGame[]> = {};
+
 export default function HomeScreen() {
   const router = useRouter();
   const { language, t } = useLanguage();
@@ -94,6 +112,7 @@ export default function HomeScreen() {
   const [games, setGames] = useState<DiscoverGame[]>([]);
   const [loading, setLoading] = useState(true);
   const hasLoadedGamesRef = useRef(false);
+  const currentUserIdRef = useRef<string | null>(null);
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -102,19 +121,24 @@ export default function HomeScreen() {
   const [cityModalVisible, setCityModalVisible] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
 
-  const [sortBy, setSortBy] = useState<"soonest" | "price_low" | "spots">(
-    "soonest",
-  );
-
+  const [distanceFilter, setDistanceFilter] = useState<
+    "closest" | "2" | "5" | "10" | null
+  >(null);
   const [skillFilter, setSkillFilter] = useState<string | null>(null);
-  const [formatFilter, setFormatFilter] = useState<string | null>(null);
-  const [priceFilter, setPriceFilter] = useState<"free" | "paid" | null>(null);
+  const [startTimeFilter, setStartTimeFilter] = useState<
+    "morning" | "afternoon" | "evening" | "night" | null
+  >(null);
 
   const [hasUnreadNotifications, setHasUnreadNotifications] = useState(false);
-
-  const [favoriteGameIds, setFavoriteGameIds] = useState<Set<string>>(
-    new Set(),
-  );
+  const [dateSort, setDateSort] = useState<"soonest" | "latest">("soonest");
+  const [proximitySort, setProximitySort] = useState<
+    "nearest" | "farthest" | null
+  >(null);
+  const [playerLocation, setPlayerLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
 
   const isSearchMode = searchFocused || search.trim().length > 0;
 
@@ -127,19 +151,23 @@ export default function HomeScreen() {
   const dates = useMemo(() => {
     const result: DateOption[] = [];
 
-    const keyFormatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Africa/Addis_Ababa",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
+    // Use the Addis Ababa calendar day as the source of truth.
+    // This keeps "Today" correct even when the device is in another timezone.
+    const todayAddisKey = getTodayAddisKey();
+    const [todayYear, todayMonth, todayDay] = todayAddisKey
+      .split("-")
+      .map(Number);
 
-    const now = new Date();
+    // Noon UTC safely represents the same Gregorian calendar date in Addis.
+    const addisToday = new Date(
+      Date.UTC(todayYear, todayMonth - 1, todayDay, 12, 0, 0),
+    );
 
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+    for (let i = 0; i < 5; i++) {
+      const date = new Date(addisToday);
+      date.setUTCDate(addisToday.getUTCDate() + i);
 
-      const key = keyFormatter.format(date);
+      const key = getAddisCalendarKey(date);
 
       let day = new Intl.DateTimeFormat(
         language === "am" ? "am-ET" : language === "om" ? "om-ET" : "en-US",
@@ -190,7 +218,7 @@ export default function HomeScreen() {
   */
   useFocusEffect(
     useCallback(() => {
-      fetchGames(!hasLoadedGamesRef.current);
+      fetchGames();
 
       async function refreshUserData() {
         const {
@@ -199,22 +227,55 @@ export default function HomeScreen() {
 
         const userId = session?.user?.id;
 
-        await Promise.all([
-          fetchUnreadNotifications(userId),
-          fetchFavorites(userId),
-        ]);
+        await fetchUnreadNotifications(userId);
       }
 
       refreshUserData();
     }, []),
   );
 
-  async function fetchGames(showLoading: boolean) {
-    if (showLoading) {
+  async function fetchGames() {
+    const now = new Date().toISOString();
+
+    // Discover should only show games the signed-in player can still join.
+    // Any active booking moves that game out of Games and into Bookings.
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const userId = session?.user?.id ?? null;
+    const cacheKey = userId ?? "signed-out";
+    const cachedGames = discoverGamesCache[cacheKey];
+
+    currentUserIdRef.current = userId;
+
+    if (cachedGames) {
+      setGames(cachedGames);
+      setLoading(false);
+      hasLoadedGamesRef.current = true;
+    } else {
       setLoading(true);
     }
 
-    const now = new Date().toISOString();
+    const bookedGameIds = new Set<string>();
+
+    if (userId) {
+      const { data: bookingRows, error: bookingsError } = await supabase
+        .from("bookings")
+        .select("game_id,status")
+        .eq("user_id", userId)
+        .not("status", "in", "(cancelled_by_player,cancelled_by_organizer)");
+
+      if (bookingsError) {
+        console.log("Error loading player bookings:", bookingsError.message);
+      } else {
+        for (const booking of bookingRows || []) {
+          if (booking.game_id !== null && booking.game_id !== undefined) {
+            bookedGameIds.add(String(booking.game_id));
+          }
+        }
+      }
+    }
 
     const { data, error } = await supabase
       .from("games")
@@ -225,6 +286,9 @@ export default function HomeScreen() {
     organizer,
     area,
     city,
+    distance,
+    latitude,
+    longitude,
     time,
     format,
     skill,
@@ -247,33 +311,30 @@ export default function HomeScreen() {
     if (error) {
       console.log("Error loading games:", error.message);
 
-      if (!hasLoadedGamesRef.current) {
+      if (!cachedGames) {
         setGames([]);
       }
 
-      if (showLoading) {
-        setLoading(false);
-      }
-
+      setLoading(false);
       return;
     }
 
-    const mappedGames = (data || []).map((game) => ({
-      ...game,
+    const mappedGames = (data || [])
+      .filter((game) => !bookedGameIds.has(String(game.id)))
+      .map((game) => ({
+        ...game,
 
-      id: String(game.id),
+        id: String(game.id),
 
-      spotsLeft: game.spots_left,
+        spotsLeft: game.spots_left,
 
-      image: game.image_url ?? "",
-    })) as DiscoverGame[];
+        image: game.image_url ?? "",
+      })) as DiscoverGame[];
 
+    discoverGamesCache[cacheKey] = mappedGames;
     setGames(mappedGames);
     hasLoadedGamesRef.current = true;
-
-    if (showLoading) {
-      setLoading(false);
-    }
+    setLoading(false);
   }
 
   async function fetchUnreadNotifications(userId?: string) {
@@ -295,114 +356,186 @@ export default function HomeScreen() {
 
     setHasUnreadNotifications((count ?? 0) > 0);
   }
-  async function fetchFavorites(userId?: string) {
-    if (!userId) {
-      setFavoriteGameIds(new Set());
-      return;
+  function getAddisDateKey(timestamp: string) {
+    return getAddisCalendarKey(new Date(timestamp));
+  }
+
+  const formatGameDate = useCallback(
+    (timestamp: string) => {
+      if (language === "am" || language === "om") {
+        return getEthiopianDate(timestamp, language).label;
+      }
+
+      return GAME_DATE_FORMATTER.format(new Date(timestamp));
+    },
+    [language, dateLocale],
+  );
+
+  async function ensurePlayerLocation() {
+    if (playerLocation) {
+      return playerLocation;
     }
 
-    const { data, error } = await supabase
-      .from("favorites")
-      .select("game_id")
-      .eq("user_id", userId);
-
-    if (error) {
-      console.log("Favorites error:", error.message);
-      return;
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Location unavailable",
+        "Location sorting is currently available in the iOS and Android app.",
+      );
+      return null;
     }
 
-    setFavoriteGameIds(
-      new Set((data ?? []).map((favorite) => String(favorite.game_id))),
+    try {
+      setLocationLoading(true);
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Location permission needed",
+          "Allow Addis Football to access your location to sort games by distance.",
+        );
+        return null;
+      }
+
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const nextLocation = {
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+      };
+
+      setPlayerLocation(nextLocation);
+      return nextLocation;
+    } catch (error) {
+      console.log("Location error:", error);
+
+      Alert.alert(
+        "Could not get your location",
+        "Please make sure Location Services are turned on and try again.",
+      );
+
+      return null;
+    } finally {
+      setLocationLoading(false);
+    }
+  }
+
+  async function toggleProximitySort() {
+    if (locationLoading) return;
+
+    const location = await ensurePlayerLocation();
+
+    if (!location) return;
+
+    setProximitySort((current) =>
+      current === "nearest" ? "farthest" : "nearest",
     );
   }
 
-  async function toggleFavorite(gameId: string) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+  function calculateDistanceKm(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ) {
+    const earthRadiusKm = 6371;
 
-    const userId = session?.user?.id;
-    if (!userId) return;
+    const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
 
-    const isFavorite = favoriteGameIds.has(gameId);
+    const latitudeDifference = toRadians(lat2 - lat1);
+    const longitudeDifference = toRadians(lon2 - lon1);
 
-    setFavoriteGameIds((current) => {
-      const next = new Set(current);
-      if (isFavorite) next.delete(gameId);
-      else next.add(gameId);
-      return next;
-    });
+    const a =
+      Math.sin(latitudeDifference / 2) ** 2 +
+      Math.cos(toRadians(lat1)) *
+        Math.cos(toRadians(lat2)) *
+        Math.sin(longitudeDifference / 2) ** 2;
 
-    if (isFavorite) {
-      const { error } = await supabase
-        .from("favorites")
-        .delete()
-        .eq("user_id", userId)
-        .eq("game_id", gameId);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-      if (error) {
-        console.log("Remove favorite error:", error.message);
-        fetchFavorites(userId);
-      }
-      return;
-    }
-
-    const { error } = await supabase.from("favorites").insert({
-      user_id: userId,
-      game_id: gameId,
-    });
-
-    if (error) {
-      console.log("Add favorite error:", error.message);
-      fetchFavorites(userId);
-    }
+    return earthRadiusKm * c;
   }
-
-  function getAddisDateKey(timestamp: string) {
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Africa/Addis_Ababa",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).format(new Date(timestamp));
-  }
-
-  function formatGameDate(timestamp: string) {
-    if (language === "am" || language === "om") {
-      return getEthiopianDate(timestamp, language).label;
-    }
-
-    return new Intl.DateTimeFormat(dateLocale, {
-      timeZone: "Africa/Addis_Ababa",
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    }).format(new Date(timestamp));
-  }
+  const gamesWithDistance = useMemo<DiscoverGameWithDistance[]>(() => {
+    return games.map((game) => ({
+      ...game,
+      distanceKm:
+        playerLocation &&
+        game.latitude != null &&
+        game.longitude != null
+          ? calculateDistanceKm(
+              playerLocation.latitude,
+              playerLocation.longitude,
+              game.latitude,
+              game.longitude,
+            )
+          : null,
+    }));
+  }, [games, playerLocation]);
 
   const visibleGames = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
 
-    // Standard app-style search:
-    // - instant from the first character
-    // - case-insensitive
-    // - searches the fields a player naturally expects
-    // - search results are ranked by relevance
-    if (query) {
-      return games
-        .filter((game) => {
-          if (!game.starts_at) {
+    function getDistanceKm(game: DiscoverGameWithDistance) {
+      return game.distanceKm;
+    }
+    function matchesStartTime(game: DiscoverGame) {
+      if (!startTimeFilter || !game.starts_at) return true;
+
+      const hour = getAddisHour(game.starts_at);
+
+      if (startTimeFilter === "morning") return hour >= 5 && hour < 12;
+      if (startTimeFilter === "afternoon") return hour >= 12 && hour < 17;
+      if (startTimeFilter === "evening") return hour >= 17 && hour < 21;
+
+      return hour >= 21 || hour < 5;
+    }
+
+    return gamesWithDistance
+      .filter((game) => {
+        if (!game.starts_at) return false;
+
+        if (
+          selectedCity !== "All Ethiopia" &&
+          (game.city || "Addis Ababa").toLocaleLowerCase() !==
+            selectedCity.toLocaleLowerCase()
+        ) {
+          return false;
+        }
+
+        if (!query) {
+          const gameDate = getAddisDateKey(game.starts_at);
+
+          if (selectedDate && gameDate !== selectedDate) {
             return false;
           }
+        }
 
-          if (
-            selectedCity !== "All Ethiopia" &&
-            (game.city || "Addis Ababa").toLocaleLowerCase() !==
-              selectedCity.toLocaleLowerCase()
-          ) {
+        if (
+          skillFilter &&
+          game.skill.toLocaleLowerCase() !== skillFilter.toLocaleLowerCase()
+        ) {
+          return false;
+        }
+
+        if (!matchesStartTime(game)) {
+          return false;
+        }
+
+        if (
+          distanceFilter === "2" ||
+          distanceFilter === "5" ||
+          distanceFilter === "10"
+        ) {
+          const distanceKm = getDistanceKm(game);
+
+          if (distanceKm === null || distanceKm > Number(distanceFilter)) {
             return false;
           }
+        }
 
+        if (query) {
           const title = game.title.toLocaleLowerCase();
           const area = game.area.toLocaleLowerCase();
           const organizer = game.organizer.toLocaleLowerCase();
@@ -414,8 +547,12 @@ export default function HomeScreen() {
             organizer.includes(query) ||
             city.includes(query)
           );
-        })
-        .sort((a, b) => {
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (query) {
           const aTitle = a.title.toLocaleLowerCase();
           const bTitle = b.title.toLocaleLowerCase();
           const aArea = a.area.toLocaleLowerCase();
@@ -430,91 +567,42 @@ export default function HomeScreen() {
           };
 
           const rankDifference = rank(aTitle, aArea) - rank(bTitle, bArea);
+          if (rankDifference !== 0) return rankDifference;
+        }
 
-          if (rankDifference !== 0) {
-            return rankDifference;
+        if (proximitySort) {
+          const aDistance = getDistanceKm(a);
+          const bDistance = getDistanceKm(b);
+
+          if (
+            aDistance !== null &&
+            bDistance !== null &&
+            aDistance !== bDistance
+          ) {
+            return proximitySort === "nearest"
+              ? aDistance - bDistance
+              : bDistance - aDistance;
           }
 
-          const aTime = new Date(a.starts_at!).getTime();
-          const bTime = new Date(b.starts_at!).getTime();
-
-          return aTime - bTime;
-        });
-    }
-
-    // Normal Discover browsing when there is no search query.
-    return games
-      .filter((game) => {
-        if (!game.starts_at) {
-          return false;
+          if (aDistance !== null && bDistance === null) return -1;
+          if (aDistance === null && bDistance !== null) return 1;
         }
 
-        if (
-          selectedCity !== "All Ethiopia" &&
-          (game.city || "Addis Ababa").toLocaleLowerCase() !==
-            selectedCity.toLocaleLowerCase()
-        ) {
-          return false;
-        }
+        const aTime = new Date(a.starts_at!).getTime();
+        const bTime = new Date(b.starts_at!).getTime();
 
-        const gameDate = getAddisDateKey(game.starts_at);
-
-        if (selectedDate && gameDate !== selectedDate) {
-          return false;
-        }
-
-        if (
-          skillFilter &&
-          game.skill.toLocaleLowerCase() !== skillFilter.toLocaleLowerCase()
-        ) {
-          return false;
-        }
-
-        if (
-          formatFilter &&
-          game.format.toLocaleLowerCase() !== formatFilter.toLocaleLowerCase()
-        ) {
-          return false;
-        }
-
-        if (priceFilter === "free" && game.payment_method !== "free") {
-          return false;
-        }
-
-        if (priceFilter === "paid" && game.payment_method === "free") {
-          return false;
-        }
-
-        return true;
-      })
-      .sort((a, b) => {
-        if (sortBy === "price_low") {
-          return a.price - b.price;
-        }
-
-        if (sortBy === "spots") {
-          return b.spots_left - a.spots_left;
-        }
-
-        const aTime = a.starts_at
-          ? new Date(a.starts_at).getTime()
-          : Number.MAX_SAFE_INTEGER;
-
-        const bTime = b.starts_at
-          ? new Date(b.starts_at).getTime()
-          : Number.MAX_SAFE_INTEGER;
-
-        return aTime - bTime;
+        return dateSort === "soonest" ? aTime - bTime : bTime - aTime;
       });
   }, [
-    games,
+    gamesWithDistance,
     search,
     selectedDate,
     selectedCity,
+    distanceFilter,
     skillFilter,
-    formatFilter,
-    priceFilter,
-    sortBy,
+    startTimeFilter,
+    dateSort,
+    proximitySort,
   ]);
 
   const playingSoonGames = isSearchMode ? [] : visibleGames.slice(0, 3);
@@ -564,6 +652,13 @@ export default function HomeScreen() {
     };
   }, [dates, selectedDate, dateLocale, language]);
 
+  const openGame = useCallback(
+    (gameId: string) => {
+      router.push(`/game/${gameId}`);
+    },
+    [router],
+  );
+
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <View style={styles.container}>
@@ -580,9 +675,10 @@ export default function HomeScreen() {
           keyboardDismissMode={
             Platform.OS === "ios" ? "interactive" : "on-drag"
           }
-          initialNumToRender={4}
-          maxToRenderPerBatch={4}
-          windowSize={5}
+          initialNumToRender={6}
+          maxToRenderPerBatch={6}
+          updateCellsBatchingPeriod={50}
+          windowSize={7}
           removeClippedSubviews={Platform.OS !== "web"}
           renderItem={({ item: row }) => (
             <View style={styles.gameGrid}>
@@ -595,11 +691,9 @@ export default function HomeScreen() {
                     isDesktopLayout && styles.gameWrapperDesktop,
                   ]}
                 >
-                  <HorizontalGameCard
+                  <GameCardItem
                     game={game}
-                    isFavorite={favoriteGameIds.has(String(game.id))}
-                    onPress={() => router.push(`/game/${game.id}`)}
-                    onToggleFavorite={() => toggleFavorite(game.id)}
+                    onOpen={openGame}
                     formatDate={formatGameDate}
                   />
                 </View>
@@ -613,7 +707,23 @@ export default function HomeScreen() {
               {isSearchMode ? (
                 <View style={styles.searchModeHeader}>
                   <View style={styles.searchModeBox}>
-                    <Ionicons name="search" size={21} color="#14201B" />
+                    <Pressable
+                      style={styles.searchBackButton}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setSearch("");
+                        setSearchFocused(false);
+                      }}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Back"
+                    >
+                      <Ionicons
+                        name="chevron-back"
+                        size={25}
+                        color={COLORS.text}
+                      />
+                    </Pressable>
                     <TextInput
                       value={search}
                       onChangeText={(text) => {
@@ -633,6 +743,7 @@ export default function HomeScreen() {
                       autoCorrect={false}
                       returnKeyType="search"
                       blurOnSubmit
+                      onSubmitEditing={() => Keyboard.dismiss()}
                       clearButtonMode="never"
                       selectionColor={COLORS.primary}
                     />
@@ -656,10 +767,7 @@ export default function HomeScreen() {
                     <Pressable
                       style={[
                         styles.heroFilterButton,
-                        (skillFilter ||
-                          formatFilter ||
-                          priceFilter ||
-                          sortBy !== "soonest") &&
+                        (distanceFilter || skillFilter || startTimeFilter) &&
                           styles.heroFilterButtonActive,
                       ]}
                       onPress={() => setFilterModalVisible(true)}
@@ -669,10 +777,7 @@ export default function HomeScreen() {
                         name="options-outline"
                         size={21}
                         color={
-                          skillFilter ||
-                          formatFilter ||
-                          priceFilter ||
-                          sortBy !== "soonest"
+                          distanceFilter || skillFilter || startTimeFilter
                             ? "#F7F8FA"
                             : COLORS.primary
                         }
@@ -781,6 +886,7 @@ export default function HomeScreen() {
                         autoCorrect={false}
                         returnKeyType="search"
                         blurOnSubmit
+                        onSubmitEditing={() => Keyboard.dismiss()}
                         clearButtonMode="never"
                         selectionColor={COLORS.primary}
                       />
@@ -804,10 +910,7 @@ export default function HomeScreen() {
                       <Pressable
                         style={[
                           styles.heroFilterButton,
-                          (skillFilter ||
-                            formatFilter ||
-                            priceFilter ||
-                            sortBy !== "soonest") &&
+                          (distanceFilter || skillFilter || startTimeFilter) &&
                             styles.heroFilterButtonActive,
                         ]}
                         onPress={() => setFilterModalVisible(true)}
@@ -817,10 +920,7 @@ export default function HomeScreen() {
                           name="options-outline"
                           size={21}
                           color={
-                            skillFilter ||
-                            formatFilter ||
-                            priceFilter ||
-                            sortBy !== "soonest"
+                            distanceFilter || skillFilter || startTimeFilter
                               ? "#F7F8FA"
                               : COLORS.primary
                           }
@@ -832,7 +932,6 @@ export default function HomeScreen() {
               )}
 
               {/* DATE SELECTOR */}
-
               {!isSearchMode && (
                 <ScrollView
                   horizontal
@@ -846,17 +945,18 @@ export default function HomeScreen() {
                     return (
                       <Pressable
                         key={item.key}
-                        onPress={() => setSelectedDate(item.key)}
                         style={({ pressed }) => [
                           styles.dateButton,
                           active && styles.dateButtonActive,
                           pressed && styles.dateButtonPressed,
                         ]}
+                        onPress={() => setSelectedDate(item.key)}
                       >
                         <Text
+                          numberOfLines={1}
                           style={[
                             styles.dateDay,
-                            active && styles.dateTextActive,
+                            active && styles.dateDayActive,
                           ]}
                         >
                           {item.day}
@@ -865,7 +965,7 @@ export default function HomeScreen() {
                         <Text
                           style={[
                             styles.dateNumber,
-                            active && styles.dateTextActive,
+                            active && styles.dateNumberActive,
                           ]}
                         >
                           {item.date}
@@ -876,21 +976,19 @@ export default function HomeScreen() {
 
                   <Pressable
                     style={({ pressed }) => [
-                      styles.headerNotificationButton,
-                      pressed && styles.headerNotificationButtonPressed,
+                      styles.dateButton,
+                      styles.calendarDateButton,
+                      pressed && styles.dateButtonPressed,
                     ]}
-                    onPress={() => router.push("/notifications")}
+                    onPress={() => setCalendarVisible(true)}
                     accessibilityRole="button"
-                    accessibilityLabel="Notifications"
+                    accessibilityLabel="Open calendar"
                   >
                     <Ionicons
-                      name="notifications-outline"
-                      size={21}
-                      color="#F7F8FA"
+                      name="calendar-outline"
+                      size={28}
+                      color={COLORS.primary}
                     />
-                    {hasUnreadNotifications && (
-                      <View style={styles.notificationDot} />
-                    )}
                   </Pressable>
                 </ScrollView>
               )}
@@ -959,19 +1057,59 @@ export default function HomeScreen() {
               {!loading && visibleGames.length > 0 && isSearchMode && (
                 <View style={styles.discoverySection}>
                   <View style={styles.discoverySectionHeader}>
-                    <View style={styles.discoverySectionTitleRow}>
-                      <Ionicons
-                        name="search"
-                        size={18}
-                        color={COLORS.primary}
-                      />
-                      <Text style={styles.discoverySectionTitle}>
-                        {t("discover.games")}
-                      </Text>
+                    <View style={styles.sortControls}>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.sortButton,
+                          pressed && { opacity: 0.6 },
+                        ]}
+                        onPress={() => {
+                          setProximitySort(null);
+                          setDateSort((current) =>
+                            current === "soonest" ? "latest" : "soonest",
+                          );
+                        }}
+                      >
+                        <Ionicons
+                          name={
+                            dateSort === "soonest"
+                              ? "arrow-down-outline"
+                              : "arrow-up-outline"
+                          }
+                          size={15}
+                          color={COLORS.text}
+                        />
+
+                        <Text style={styles.sortButtonText}>
+                          {dateSort === "soonest" ? "Soonest" : "Latest"}
+                        </Text>
+                      </Pressable>
+
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.sortButton,
+                          pressed && { opacity: 0.6 },
+                        ]}
+                        onPress={toggleProximitySort}
+                        disabled={locationLoading}
+                      >
+                        <Ionicons
+                          name="location-outline"
+                          size={15}
+                          color={COLORS.text}
+                        />
+
+                        <Text style={styles.sortButtonText}>
+                          {proximitySort === "farthest"
+                            ? "Farthest"
+                            : "Nearest"}
+                        </Text>
+                      </Pressable>
                     </View>
+
                     <Text style={styles.discoverySectionMeta}>
-                      {visibleGames.length}{" "}
-                      {visibleGames.length === 1
+                      {playingSoonGames.length}{" "}
+                      {playingSoonGames.length === 1
                         ? t("discover.game")
                         : t("discover.gamesCount")}
                     </Text>
@@ -983,11 +1121,56 @@ export default function HomeScreen() {
                 <>
                   <View style={styles.discoverySection}>
                     <View style={styles.discoverySectionHeader}>
-                      <View style={styles.discoverySectionTitleRow}>
-                        <Text style={styles.discoverySectionTitle}>
-                          {t("discover.playingSoon")}
-                        </Text>
+                      <View style={styles.sortControls}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.sortButton,
+                            pressed && { opacity: 0.6 },
+                          ]}
+                          onPress={() => {
+                            setProximitySort(null);
+                            setDateSort((current) =>
+                              current === "soonest" ? "latest" : "soonest",
+                            );
+                          }}
+                        >
+                          <Ionicons
+                            name={
+                              dateSort === "soonest"
+                                ? "arrow-down-outline"
+                                : "arrow-up-outline"
+                            }
+                            size={15}
+                            color={COLORS.text}
+                          />
+
+                          <Text style={styles.sortButtonText}>
+                            {dateSort === "soonest" ? "Soonest" : "Latest"}
+                          </Text>
+                        </Pressable>
+
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.sortButton,
+                            pressed && { opacity: 0.6 },
+                          ]}
+                          onPress={toggleProximitySort}
+                        disabled={locationLoading}
+                        >
+                          <Ionicons
+                            name="location-outline"
+                            size={15}
+                            color={COLORS.text}
+                          />
+
+                          <Text style={styles.sortButtonText}>
+                            {proximitySort === "farthest"
+                              ? "Farthest"
+                              : "Nearest"}
+                          </Text>
+                        </Pressable>
                       </View>
+
                       <Text style={styles.discoverySectionMeta}>
                         {playingSoonGames.length}{" "}
                         {playingSoonGames.length === 1
@@ -1006,11 +1189,9 @@ export default function HomeScreen() {
                             isDesktopLayout && styles.gameWrapperDesktop,
                           ]}
                         >
-                          <HorizontalGameCard
+                          <GameCardItem
                             game={game}
-                            isFavorite={favoriteGameIds.has(String(game.id))}
-                            onPress={() => router.push(`/game/${game.id}`)}
-                            onToggleFavorite={() => toggleFavorite(game.id)}
+                            onOpen={openGame}
                             formatDate={formatGameDate}
                           />
                         </View>
@@ -1219,66 +1400,39 @@ export default function HomeScreen() {
                 }}
               >
                 <View style={styles.filterHeader}>
-                  <Text style={styles.filterTitle}>
-                    {t("discover.filterGames")}
-                  </Text>
+                  <View style={styles.filterHeaderLeft}>
+                    <Pressable
+                      style={styles.filterBackButton}
+                      onPress={() => setFilterModalVisible(false)}
+                      hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Back"
+                    >
+                      <Ionicons
+                        name="chevron-back"
+                        size={25}
+                        color={COLORS.text}
+                      />
+                    </Pressable>
 
-                  <Pressable onPress={() => setFilterModalVisible(false)}>
-                    <Ionicons name="close" size={26} color={COLORS.text} />
-                  </Pressable>
+                    <Text style={styles.filterTitle}>
+                      {t("discover.filterGames")}
+                    </Text>
+                  </View>
                 </View>
 
-                {/* SORT */}
+                {/* DISTANCE */}
 
-                <Text style={styles.filterSectionTitle}>
-                  {t("discover.sortBy")}
-                </Text>
+                <Text style={styles.filterSectionTitle}>Distance</Text>
 
                 <View style={styles.filterChipRow}>
                   {[
-                    ["soonest", t("discover.soonest")],
-                    ["price_low", t("discover.lowestPrice")],
-                    ["spots", t("discover.mostSpotsAvailable")],
+                    [null, "Any"],
+                    ["2", "Under 2 km"],
+                    ["5", "Under 5 km"],
+                    ["10", "Under 10 km"],
                   ].map(([value, label]) => {
-                    const active = sortBy === value;
-
-                    return (
-                      <Pressable
-                        key={value}
-                        style={[
-                          styles.filterChip,
-                          active && styles.filterChipActive,
-                        ]}
-                        onPress={() =>
-                          setSortBy(value as "soonest" | "price_low" | "spots")
-                        }
-                      >
-                        <Text
-                          style={[
-                            styles.filterChipText,
-                            active && styles.filterChipTextActive,
-                          ]}
-                        >
-                          {label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                {/* PRICE */}
-
-                <Text style={styles.filterSectionTitle}>
-                  {t("discover.price")}
-                </Text>
-
-                <View style={styles.filterChipRow}>
-                  {[
-                    [null, t("discover.anyPrice")],
-                    ["free", t("discover.free")],
-                    ["paid", t("discover.paid")],
-                  ].map(([value, label]) => {
-                    const active = priceFilter === value;
+                    const active = distanceFilter === value;
 
                     return (
                       <Pressable
@@ -1287,9 +1441,24 @@ export default function HomeScreen() {
                           styles.filterChip,
                           active && styles.filterChipActive,
                         ]}
-                        onPress={() =>
-                          setPriceFilter(value as "free" | "paid" | null)
-                        }
+                        onPress={async () => {
+                          const nextValue = value as
+                            | "2"
+                            | "5"
+                            | "10"
+                            | null;
+
+                          if (nextValue === null) {
+                            setDistanceFilter(null);
+                            return;
+                          }
+
+                          const location = await ensurePlayerLocation();
+
+                          if (!location) return;
+
+                          setDistanceFilter(nextValue);
+                        }}
                       >
                         <Text
                           style={[
@@ -1304,15 +1473,13 @@ export default function HomeScreen() {
                   })}
                 </View>
 
-                {/* SKILL */}
+                {/* GAME LEVEL */}
 
-                <Text style={styles.filterSectionTitle}>
-                  {t("discover.skillLevel")}
-                </Text>
+                <Text style={styles.filterSectionTitle}>Game level</Text>
 
                 <View style={styles.filterChipRow}>
                   {[
-                    [null, t("discover.anySkill")],
+                    [null, "Any"],
                     ["Beginner", t("discover.beginner")],
                     ["Intermediate", t("discover.intermediate")],
                     ["Advanced", t("discover.advanced")],
@@ -1341,21 +1508,18 @@ export default function HomeScreen() {
                   })}
                 </View>
 
-                {/* FORMAT */}
+                {/* STARTING TIME */}
 
-                <Text style={styles.filterSectionTitle}>
-                  {t("discover.gameFormat")}
-                </Text>
+                <Text style={styles.filterSectionTitle}>Time</Text>
 
                 <View style={styles.filterChipRow}>
                   {[
-                    [null, t("discover.anyFormat")],
-                    ["5v5", "5v5"],
-                    ["6v6", "6v6"],
-                    ["7v7", "7v7"],
-                    ["11v11", "11v11"],
+                    [null, "Any"],
+                    ["morning", "Morning"],
+                    ["afternoon", "Afternoon"],
+                    ["evening", "Evening"],
                   ].map(([value, label]) => {
-                    const active = formatFilter === value;
+                    const active = startTimeFilter === value;
 
                     return (
                       <Pressable
@@ -1364,7 +1528,16 @@ export default function HomeScreen() {
                           styles.filterChip,
                           active && styles.filterChipActive,
                         ]}
-                        onPress={() => setFormatFilter(value)}
+                        onPress={() =>
+                          setStartTimeFilter(
+                            value as
+                              | "morning"
+                              | "afternoon"
+                              | "evening"
+                              | "night"
+                              | null,
+                          )
+                        }
                       >
                         <Text
                           style={[
@@ -1386,10 +1559,9 @@ export default function HomeScreen() {
                 <Pressable
                   style={styles.resetFilterButton}
                   onPress={() => {
-                    setSortBy("soonest");
+                    setDistanceFilter(null);
                     setSkillFilter(null);
-                    setFormatFilter(null);
-                    setPriceFilter(null);
+                    setStartTimeFilter(null);
                   }}
                 >
                   <Text style={styles.resetFilterText}>
@@ -1402,7 +1574,8 @@ export default function HomeScreen() {
                   onPress={() => setFilterModalVisible(false)}
                 >
                   <Text style={styles.showGamesText}>
-                    {t("discover.showGames")}
+                    Show {visibleGames.length}{" "}
+                    {visibleGames.length === 1 ? "game" : "games"}
                   </Text>
                 </Pressable>
               </View>
@@ -1414,17 +1587,36 @@ export default function HomeScreen() {
   );
 }
 
-function HorizontalGameCard({
+
+const GameCardItem = memo(function GameCardItem({
   game,
-  isFavorite,
-  onPress,
-  onToggleFavorite,
+  onOpen,
   formatDate,
 }: {
-  game: DiscoverGame;
-  isFavorite: boolean;
+  game: DiscoverGameWithDistance;
+  onOpen: (gameId: string) => void;
+  formatDate: (timestamp: string) => string;
+}) {
+  const handlePress = useCallback(() => {
+    onOpen(game.id);
+  }, [onOpen, game.id]);
+
+  return (
+    <HorizontalGameCard
+      game={game}
+      onPress={handlePress}
+      formatDate={formatDate}
+    />
+  );
+});
+
+function HorizontalGameCardComponent({
+  game,
+  onPress,
+  formatDate,
+}: {
+  game: DiscoverGameWithDistance;
   onPress: () => void;
-  onToggleFavorite: () => void;
   formatDate: (timestamp: string) => string;
 }) {
   const isFull = game.status === "full" || game.spotsLeft <= 0;
@@ -1480,21 +1672,6 @@ function HorizontalGameCard({
           <Text numberOfLines={2} style={styles.horizontalGameTitle}>
             {game.title}
           </Text>
-
-          <Pressable
-            onPress={(event) => {
-              event.stopPropagation();
-              onToggleFavorite();
-            }}
-            hitSlop={10}
-            style={styles.horizontalFavoriteButton}
-          >
-            <Ionicons
-              name={isFavorite ? "heart" : "heart-outline"}
-              size={22}
-              color={isFavorite ? COLORS.primary : COLORS.text}
-            />
-          </Pressable>
         </View>
 
         <View style={styles.gameScheduleBlock}>
@@ -1534,6 +1711,11 @@ function HorizontalGameCard({
           />
           <Text numberOfLines={1} style={styles.horizontalMetaText}>
             {game.area}
+            {game.distanceKm !== null
+              ? ` · ${game.distanceKm < 1
+                  ? `${Math.round(game.distanceKm * 1000)} m`
+                  : `${game.distanceKm.toFixed(1)} km`}`
+              : ""}
           </Text>
         </View>
 
@@ -1571,6 +1753,27 @@ function HorizontalGameCard({
       </View>
     </Pressable>
   );
+}
+
+
+const HorizontalGameCard = memo(
+  HorizontalGameCardComponent,
+  (previous, next) =>
+    previous.game === next.game &&
+    previous.onPress === next.onPress &&
+    previous.formatDate === next.formatDate,
+);
+
+function getAddisHour(timestamp: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Addis_Ababa",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(timestamp));
+
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+
+  return Number.isFinite(hour) ? hour : 0;
 }
 
 function formatAddisTime(timestamp: string) {
@@ -1749,13 +1952,34 @@ function ethiopianToGregorianKey(year: number, month: number, day: number) {
   )}-${String(gregorian.day).padStart(2, "0")}`;
 }
 
-function getTodayAddisKey() {
-  return new Intl.DateTimeFormat("en-CA", {
+function getAddisCalendarKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Africa/Addis_Ababa",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+  return `${year}-${month}-${day}`;
+}
+
+function getTodayAddisKey() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Africa/Addis_Ababa",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+  return `${year}-${month}-${day}`;
 }
 
 function isEthiopianLeapYear(year: number) {
@@ -1908,6 +2132,29 @@ function EthiopianCalendar({
 }
 
 const styles = StyleSheet.create({
+  searchBackButton: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: -4,
+  },
+
+  filterHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+
+  filterBackButton: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: -8,
+    marginRight: 4,
+  },
+
   hero: {
     minHeight: 250,
     borderRadius: 0,
@@ -1967,6 +2214,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 14,
+  },
+  sortButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
+  sortButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: COLORS.text,
   },
 
   heroContentLarge: {
@@ -2372,11 +2636,6 @@ const styles = StyleSheet.create({
     width: "100%",
   },
 
-  calendarDateButton: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
   dateRow: {
     gap: 8,
     paddingBottom: 17,
@@ -2529,7 +2788,7 @@ const styles = StyleSheet.create({
   },
 
   discoverySectionMeta: {
-    color: COLORS.primary,
+    color: COLORS.textSecondary,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -2796,7 +3055,6 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     gap: 8,
     marginBottom: 7,
-    paddingRight: 34,
   },
 
   horizontalGameTitle: {
@@ -2806,19 +3064,6 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     fontWeight: "800",
     letterSpacing: -0.3,
-  },
-
-  horizontalFavoriteButton: {
-    position: "absolute",
-    right: 12,
-    top: 12,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.surface,
-    zIndex: 5,
   },
 
   gameScheduleBlock: {
@@ -2870,12 +3115,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 999,
-    backgroundColor: COLORS.primarySoft,
+    backgroundColor: COLORS.surfaceAlt,
     flexShrink: 0,
   },
 
   durationBadgeText: {
-    color: COLORS.primaryPressed,
+    color: COLORS.textSecondary,
     fontSize: 10,
     lineHeight: 13,
     fontWeight: "800",
@@ -2935,5 +3180,17 @@ const styles = StyleSheet.create({
 
   horizontalChevron: {
     display: "none",
+  },
+
+  calendarDateButton: {
+    width: 74,
+    minWidth: 74,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sortControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
 });
