@@ -22,6 +22,9 @@ import { supabase } from "../lib/supabase";
 const PRIVACY_POLICY_URL =
   "https://amanuel-gezahange.github.io/addis-football/";
 
+const TERMS_OF_SERVICE_URL =
+  "https://amanuel-gezahange.github.io/addis-football/terms.html";
+
 const SUPPORT_EMAIL = "addisfootballapp@gmail.com";
 
 const organizerRoleCache: Record<string, boolean> = {};
@@ -431,9 +434,17 @@ export default function SettingsScreen() {
           <View style={styles.divider} />
 
           <SettingsRow
-            icon="document-text-outline"
+            icon="shield-checkmark-outline"
             title={t("settings.privacyPolicy")}
             onPress={() => openExternalUrl(PRIVACY_POLICY_URL)}
+          />
+
+          <View style={styles.divider} />
+
+          <SettingsRow
+            icon="document-text-outline"
+            title="Terms of Service"
+            onPress={() => openExternalUrl(TERMS_OF_SERVICE_URL)}
           />
         </View>
 
@@ -579,6 +590,7 @@ type SettingsRowProps = {
     | "notifications-outline"
     | "help-circle-outline"
     | "document-text-outline"
+    | "shield-checkmark-outline"
     | "trash-outline"
     | "log-out-outline"
     | "football-outline"

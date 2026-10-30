@@ -3,7 +3,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import {
     ActivityIndicator,
-    Alert,
     Image,
     Pressable,
     ScrollView,
@@ -24,31 +23,14 @@ type PublicPlayerProfile = {
     role: string;
 };
 
-type FriendshipStatus =
-    "none" | "outgoing_pending" | "incoming_pending" | "accepted";
-
-type FriendshipRow = {
-    id: number;
-    requester_id: string;
-    addressee_id: string;
-    status: "pending" | "accepted" | "declined";
-};
-
-
 type PlayerProfileCacheEntry = {
     profile: PublicPlayerProfile;
     currentUserId: string | null;
-    friendship: FriendshipRow | null;
-    friendshipStatus: FriendshipStatus;
-    friendsCount: number | null;
 };
 
 const playerProfileCache: Record<string, PlayerProfileCacheEntry> = {};
 
-function getPlayerProfileCacheKey(
-    playerId?: string,
-    viewerId?: string | null,
-) {
+function getPlayerProfileCacheKey(playerId?: string, viewerId?: string | null) {
     if (!playerId) {
         return undefined;
     }
@@ -56,10 +38,7 @@ function getPlayerProfileCacheKey(
     return `${viewerId ?? "signed-out"}:${playerId}`;
 }
 
-function getPlayerProfileCache(
-    playerId?: string,
-    viewerId?: string | null,
-) {
+function getPlayerProfileCache(playerId?: string, viewerId?: string | null) {
     const key = getPlayerProfileCacheKey(playerId, viewerId);
 
     return key ? playerProfileCache[key] : undefined;
@@ -90,20 +69,12 @@ export default function PlayerProfileScreen() {
 
     const [openingMessage, setOpeningMessage] = useState(false);
 
-    const [friendship, setFriendship] = useState<FriendshipRow | null>(null);
-
-    const [friendshipStatus, setFriendshipStatus] =
-        useState<FriendshipStatus>("none");
-
-    const [friendActionLoading, setFriendActionLoading] = useState(false);
-
-    const [friendsCount, setFriendsCount] = useState<number | null>(null);
-
     useEffect(() => {
         void loadProfile();
     }, [id]);
 
     async function loadProfile() {
+        console.log("PLAYER PROFILE ROUTE ID:", id);
         if (!id) {
             setError("Player profile not found.");
             setLoading(false);
@@ -117,22 +88,17 @@ export default function PlayerProfileScreen() {
         } = await supabase.auth.getSession();
 
         const viewerId = session?.user?.id ?? null;
+        console.log("==========PLAYER PROFILE VIEWER ID:", viewerId);
         setCurrentUserId(viewerId);
 
         const cached = getPlayerProfileCache(id, viewerId);
 
         if (cached) {
             setProfile(cached.profile);
-            setFriendship(cached.friendship);
-            setFriendshipStatus(cached.friendshipStatus);
-            setFriendsCount(cached.friendsCount);
             setLoading(false);
         } else {
             setLoading(true);
             setProfile(null);
-            setFriendship(null);
-            setFriendshipStatus("none");
-            setFriendsCount(null);
         }
 
         const { data, error: profileError } = await supabase.rpc(
@@ -154,6 +120,10 @@ export default function PlayerProfileScreen() {
         }
 
         const result = Array.isArray(data) ? data[0] : data;
+
+        console.log("PLAYER PROFILE RPC DATA:", data);
+        console.log("PLAYER PROFILE RPC ERROR:", profileError);
+        console.log("PLAYER PROFILE RESULT:", result);
 
         if (!result) {
             if (!cached) {
@@ -177,21 +147,7 @@ export default function PlayerProfileScreen() {
         setPlayerProfileCache(id, viewerId, {
             profile: loadedProfile,
             currentUserId: viewerId,
-            friendship: cached?.friendship ?? null,
-            friendshipStatus: cached?.friendshipStatus ?? "none",
-            friendsCount: cached?.friendsCount ?? null,
         });
-
-        if (viewerId) {
-            await Promise.all([
-                loadFriendship(viewerId, loadedProfile.userId),
-                loadFriendsCount(loadedProfile.userId, viewerId),
-            ]);
-        } else {
-            setFriendship(null);
-            setFriendshipStatus("none");
-            await loadFriendsCount(loadedProfile.userId, null);
-        }
 
         setLoading(false);
     }
@@ -238,363 +194,6 @@ export default function PlayerProfileScreen() {
         }
 
         return skillLevel;
-    }
-
-    async function loadFriendship(viewerId: string, playerId: string) {
-        if (viewerId === playerId) {
-            setFriendship(null);
-            setFriendshipStatus("none");
-
-            const cached = getPlayerProfileCache(playerId, viewerId);
-            if (cached) {
-                cached.friendship = null;
-                cached.friendshipStatus = "none";
-            }
-            return;
-        }
-
-        const { data, error: friendshipError } = await supabase
-            .from("friendships")
-            .select("id,requester_id,addressee_id,status")
-            .or(
-                `and(requester_id.eq.${viewerId},addressee_id.eq.${playerId}),and(requester_id.eq.${playerId},addressee_id.eq.${viewerId})`,
-            )
-            .order("updated_at", {
-                ascending: false,
-            })
-            .limit(1)
-            .maybeSingle();
-
-        if (friendshipError) {
-            console.error("Could not load friendship:", friendshipError);
-            return;
-        }
-
-        const row = data
-            ? ({
-                  id: Number(data.id),
-                  requester_id: String(data.requester_id),
-                  addressee_id: String(data.addressee_id),
-                  status: String(data.status) as FriendshipRow["status"],
-              } satisfies FriendshipRow)
-            : null;
-
-        setFriendship(row);
-
-        let nextStatus: FriendshipStatus = "none";
-
-        if (row && row.status !== "declined") {
-            if (row.status === "accepted") {
-                nextStatus = "accepted";
-            } else {
-                nextStatus =
-                    row.requester_id === viewerId
-                        ? "outgoing_pending"
-                        : "incoming_pending";
-            }
-        }
-
-        setFriendshipStatus(nextStatus);
-
-        const cached = getPlayerProfileCache(playerId, viewerId);
-        if (cached) {
-            cached.friendship = row;
-            cached.friendshipStatus = nextStatus;
-        }
-    }
-
-    async function loadFriendsCount(
-        playerId: string,
-        viewerId: string | null = currentUserId,
-    ) {
-        const { count, error: countError } = await supabase
-            .from("friendships")
-            .select("id", {
-                count: "exact",
-                head: true,
-            })
-            .eq("status", "accepted")
-            .or(`requester_id.eq.${playerId},addressee_id.eq.${playerId}`);
-
-        if (countError) {
-            console.error("Could not load friends count:", countError);
-            return;
-        }
-
-        const nextCount = count ?? 0;
-        setFriendsCount(nextCount);
-
-        const cached = getPlayerProfileCache(playerId, viewerId);
-        if (cached) {
-            cached.friendsCount = nextCount;
-        }
-    }
-
-    async function handleAddFriend() {
-        if (!profile?.userId || !currentUserId || friendActionLoading) {
-            return;
-        }
-
-        setFriendActionLoading(true);
-
-        try {
-            if (friendship && friendship.status === "declined") {
-                const { error: deleteError } = await supabase
-                    .from("friendships")
-                    .delete()
-                    .eq("id", friendship.id);
-
-                if (deleteError) {
-                    throw deleteError;
-                }
-            }
-
-            const { error: insertError } = await supabase
-                .from("friendships")
-                .insert({
-                    requester_id: currentUserId,
-                    addressee_id: profile.userId,
-                    status: "pending",
-                });
-
-            if (insertError) {
-                throw insertError;
-            }
-
-            await loadFriendship(currentUserId, profile.userId);
-        } catch (friendError) {
-            console.error("Could not send friend request:", friendError);
-
-            Alert.alert(
-                "Could not send request",
-                friendError instanceof Error
-                    ? friendError.message
-                    : "Please try again.",
-            );
-        } finally {
-            setFriendActionLoading(false);
-        }
-    }
-
-    async function handleAcceptFriend() {
-        if (
-            !friendship ||
-            !profile?.userId ||
-            !currentUserId ||
-            friendActionLoading
-        ) {
-            return;
-        }
-
-        setFriendActionLoading(true);
-
-        try {
-            const { error: updateError } = await supabase
-                .from("friendships")
-                .update({
-                    status: "accepted",
-                    updated_at: new Date().toISOString(),
-                })
-                .eq("id", friendship.id)
-                .eq("addressee_id", currentUserId);
-
-            if (updateError) {
-                throw updateError;
-            }
-
-            await Promise.all([
-                loadFriendship(currentUserId, profile.userId),
-                loadFriendsCount(profile.userId, currentUserId),
-            ]);
-        } catch (friendError) {
-            console.error("Could not accept friend request:", friendError);
-
-            Alert.alert("Could not accept request", "Please try again.");
-        } finally {
-            setFriendActionLoading(false);
-        }
-    }
-
-    async function handleDeclineFriend() {
-        if (
-            !friendship ||
-            !profile?.userId ||
-            !currentUserId ||
-            friendActionLoading
-        ) {
-            return;
-        }
-
-        setFriendActionLoading(true);
-
-        try {
-            const { error: updateError } = await supabase
-                .from("friendships")
-                .update({
-                    status: "declined",
-                    updated_at: new Date().toISOString(),
-                })
-                .eq("id", friendship.id)
-                .eq("addressee_id", currentUserId);
-
-            if (updateError) {
-                throw updateError;
-            }
-
-            await loadFriendship(currentUserId, profile.userId);
-        } catch (friendError) {
-            console.error("Could not decline friend request:", friendError);
-
-            Alert.alert("Could not decline request", "Please try again.");
-        } finally {
-            setFriendActionLoading(false);
-        }
-    }
-
-    function openPlayerMenu() {
-        if (isCurrentUser || friendActionLoading) {
-            return;
-        }
-
-        if (friendshipStatus === "accepted" && friendship) {
-            Alert.alert("Player options", undefined, [
-                {
-                    text: "Remove Friend",
-                    style: "destructive",
-                    onPress: () => {
-                        confirmRemoveFriend();
-                    },
-                },
-                {
-                    text: "Cancel",
-                    style: "cancel",
-                },
-            ]);
-            return;
-        }
-
-        if (friendshipStatus === "outgoing_pending" && friendship) {
-            Alert.alert("Player options", undefined, [
-                {
-                    text: "Cancel Friend Request",
-                    style: "destructive",
-                    onPress: () => {
-                        confirmCancelFriendRequest();
-                    },
-                },
-                {
-                    text: "Cancel",
-                    style: "cancel",
-                },
-            ]);
-            return;
-        }
-
-        Alert.alert(
-            "Player options",
-            "No additional actions are available for this player right now.",
-            [
-                {
-                    text: "OK",
-                },
-            ],
-        );
-    }
-
-    function confirmRemoveFriend() {
-        Alert.alert(
-            "Remove friend?",
-            `You and ${profile?.fullName ?? "this player"} will no longer be friends.`,
-            [
-                {
-                    text: "Cancel",
-                    style: "cancel",
-                },
-                {
-                    text: "Remove Friend",
-                    style: "destructive",
-                    onPress: () => {
-                        void deleteFriendship("friend");
-                    },
-                },
-            ],
-        );
-    }
-
-    function confirmCancelFriendRequest() {
-        Alert.alert(
-            "Cancel friend request?",
-            `${profile?.fullName ?? "This player"} will no longer have a pending friend request from you.`,
-            [
-                {
-                    text: "Keep Request",
-                    style: "cancel",
-                },
-                {
-                    text: "Cancel Request",
-                    style: "destructive",
-                    onPress: () => {
-                        void deleteFriendship("request");
-                    },
-                },
-            ],
-        );
-    }
-
-    async function deleteFriendship(action: "friend" | "request") {
-        if (
-            !friendship ||
-            !profile?.userId ||
-            !currentUserId ||
-            friendActionLoading
-        ) {
-            return;
-        }
-
-        setFriendActionLoading(true);
-
-        try {
-            const { error: deleteError } = await supabase
-                .from("friendships")
-                .delete()
-                .eq("id", friendship.id);
-
-            if (deleteError) {
-                throw deleteError;
-            }
-
-            setFriendship(null);
-            setFriendshipStatus("none");
-
-            const cached = getPlayerProfileCache(
-                profile.userId,
-                currentUserId,
-            );
-            if (cached) {
-                cached.friendship = null;
-                cached.friendshipStatus = "none";
-            }
-
-            if (action === "friend") {
-                await loadFriendsCount(profile.userId, currentUserId);
-            }
-        } catch (friendError) {
-            console.error(
-                action === "friend"
-                    ? "Could not remove friend:"
-                    : "Could not cancel friend request:",
-                friendError,
-            );
-
-            Alert.alert(
-                action === "friend"
-                    ? "Could not remove friend"
-                    : "Could not cancel request",
-                "Please try again.",
-            );
-        } finally {
-            setFriendActionLoading(false);
-        }
     }
 
     async function handleMessage() {
@@ -722,22 +321,7 @@ export default function PlayerProfileScreen() {
 
                 <Text style={styles.headerTitle}>Player Profile</Text>
 
-                <Pressable
-                    style={({ pressed }) => [
-                        styles.moreButton,
-                        pressed && styles.buttonPressed,
-                    ]}
-                    onPress={openPlayerMenu}
-                    disabled={isCurrentUser || friendActionLoading}
-                    accessibilityRole="button"
-                    accessibilityLabel="More options"
-                >
-                    <Ionicons
-                        name="ellipsis-horizontal"
-                        size={23}
-                        color="#14201B"
-                    />
-                </Pressable>
+                <View style={styles.headerSpacer} />
             </View>
 
             <ScrollView
@@ -805,7 +389,7 @@ export default function PlayerProfileScreen() {
                     )}
                 </View>
 
-                {/* ACTIONS */}
+                {/* MESSAGE */}
 
                 {!isCurrentUser && (
                     <View style={styles.actions}>
@@ -821,6 +405,8 @@ export default function PlayerProfileScreen() {
                                 void handleMessage();
                             }}
                             disabled={openingMessage}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Message ${profile.fullName}`}
                         >
                             {openingMessage ? (
                                 <ActivityIndicator
@@ -841,98 +427,6 @@ export default function PlayerProfileScreen() {
                                 </>
                             )}
                         </Pressable>
-
-                        {friendshipStatus === "incoming_pending" ? (
-                            <View style={styles.friendRequestActions}>
-                                <Pressable
-                                    style={({ pressed }) => [
-                                        styles.acceptButton,
-                                        pressed && styles.actionPressed,
-                                        friendActionLoading && {
-                                            opacity: 0.65,
-                                        },
-                                    ]}
-                                    onPress={() => {
-                                        void handleAcceptFriend();
-                                    }}
-                                    disabled={friendActionLoading}
-                                >
-                                    <Text style={styles.acceptButtonText}>
-                                        Accept
-                                    </Text>
-                                </Pressable>
-
-                                <Pressable
-                                    style={({ pressed }) => [
-                                        styles.declineButton,
-                                        pressed && styles.actionPressed,
-                                        friendActionLoading && {
-                                            opacity: 0.65,
-                                        },
-                                    ]}
-                                    onPress={() => {
-                                        void handleDeclineFriend();
-                                    }}
-                                    disabled={friendActionLoading}
-                                >
-                                    <Text style={styles.declineButtonText}>
-                                        Decline
-                                    </Text>
-                                </Pressable>
-                            </View>
-                        ) : (
-                            <Pressable
-                                style={({ pressed }) => [
-                                    styles.friendButton,
-                                    friendshipStatus === "accepted" &&
-                                        styles.friendButtonAccepted,
-                                    pressed &&
-                                        friendshipStatus === "none" &&
-                                        styles.actionPressed,
-                                    friendActionLoading && {
-                                        opacity: 0.65,
-                                    },
-                                ]}
-                                onPress={() => {
-                                    if (friendshipStatus === "none") {
-                                        void handleAddFriend();
-                                    }
-                                }}
-                                disabled={
-                                    friendActionLoading ||
-                                    friendshipStatus !== "none"
-                                }
-                            >
-                                {friendActionLoading ? (
-                                    <ActivityIndicator
-                                        size="small"
-                                        color={COLORS.primary}
-                                    />
-                                ) : (
-                                    <Ionicons
-                                        name={
-                                            friendshipStatus === "accepted"
-                                                ? "checkmark-circle"
-                                                : friendshipStatus ===
-                                                    "outgoing_pending"
-                                                  ? "time-outline"
-                                                  : "person-add-outline"
-                                        }
-                                        size={19}
-                                        color={COLORS.primary}
-                                    />
-                                )}
-
-                                <Text style={styles.friendButtonText}>
-                                    {friendshipStatus === "accepted"
-                                        ? "Friends"
-                                        : friendshipStatus ===
-                                            "outgoing_pending"
-                                          ? "Requested"
-                                          : "Add Friend"}
-                                </Text>
-                            </Pressable>
-                        )}
                     </View>
                 )}
 
@@ -981,17 +475,6 @@ export default function PlayerProfileScreen() {
                         <View style={styles.activityDivider} />
 
                         <ActivityItem value="—" label="Games together" />
-
-                        <View style={styles.activityDivider} />
-
-                        <ActivityItem
-                            value={
-                                friendsCount === null
-                                    ? "—"
-                                    : String(friendsCount)
-                            }
-                            label="Friends"
-                        />
                     </View>
 
                     <Text style={styles.comingSoon}>
@@ -1090,15 +573,9 @@ const styles = StyleSheet.create({
         borderColor: "#DDE6E2",
     },
 
-    moreButton: {
+    headerSpacer: {
         width: 42,
         height: 42,
-        borderRadius: 21,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "#FFFFFF",
-        borderWidth: 1,
-        borderColor: "#DDE6E2",
     },
 
     buttonPressed: {
@@ -1250,14 +727,12 @@ const styles = StyleSheet.create({
     },
 
     actions: {
-        flexDirection: "row",
-        gap: 10,
         paddingHorizontal: 20,
         marginTop: 24,
     },
 
     messageButton: {
-        flex: 1,
+        width: "100%",
         height: 48,
         borderRadius: 14,
         flexDirection: "row",
@@ -1270,67 +745,6 @@ const styles = StyleSheet.create({
     messageButtonText: {
         color: "#FFFFFF",
         fontSize: 14,
-        fontWeight: "800",
-    },
-
-    friendButton: {
-        flex: 1,
-        height: 48,
-        borderRadius: 14,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 8,
-        backgroundColor: "#FFFFFF",
-        borderWidth: 1,
-        borderColor: COLORS.primary,
-    },
-
-    friendButtonText: {
-        color: COLORS.primary,
-        fontSize: 14,
-        fontWeight: "800",
-    },
-
-    friendButtonAccepted: {
-        backgroundColor: "#E7F8F1",
-    },
-
-    friendRequestActions: {
-        flex: 1,
-        flexDirection: "row",
-        gap: 8,
-    },
-
-    acceptButton: {
-        flex: 1,
-        height: 48,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: COLORS.primary,
-    },
-
-    acceptButtonText: {
-        color: "#FFFFFF",
-        fontSize: 13,
-        fontWeight: "800",
-    },
-
-    declineButton: {
-        flex: 1,
-        height: 48,
-        borderRadius: 14,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "#FFFFFF",
-        borderWidth: 1,
-        borderColor: "#DDE6E2",
-    },
-
-    declineButtonText: {
-        color: "#66766F",
-        fontSize: 13,
         fontWeight: "800",
     },
 

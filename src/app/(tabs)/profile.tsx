@@ -38,13 +38,9 @@ export default function ProfileScreen() {
 
   const { colors, isDark, toggleTheme } = useTheme();
 
-  const styles = useMemo(
-    () => createStyles(colors),
-    [colors],
-  );
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
-  const isDesktopWeb =
-    Platform.OS === "web" && width >= 900;
+  const isDesktopWeb = Platform.OS === "web" && width >= 900;
 
   const isSmallPhone = width < 380;
 
@@ -52,11 +48,9 @@ export default function ProfileScreen() {
   const [skillLevel, setSkillLevel] = useState("");
   const [role, setRole] = useState("player");
 
-  const [avatarUrl, setAvatarUrl] =
-    useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
-  const [unreadMessages, setUnreadMessages] =
-    useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   const [loading, setLoading] = useState(true);
 
@@ -102,17 +96,12 @@ export default function ProfileScreen() {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select(
-        "full_name, skill_level, role, avatar_url",
-      )
+      .select("full_name, skill_level, role, avatar_url")
       .eq("id", user.id)
       .maybeSingle();
 
     if (error) {
-      console.log(
-        "Profile error:",
-        error.message,
-      );
+      console.log("Profile error:", error.message);
 
       setLoading(false);
       return;
@@ -148,15 +137,8 @@ export default function ProfileScreen() {
       return;
     }
 
-    if (
-      Object.prototype.hasOwnProperty.call(
-        unreadMessagesCache,
-        user.id,
-      )
-    ) {
-      setUnreadMessages(
-        unreadMessagesCache[user.id],
-      );
+    if (Object.prototype.hasOwnProperty.call(unreadMessagesCache, user.id)) {
+      setUnreadMessages(unreadMessagesCache[user.id]);
     }
 
     const { data, error } = await supabase.rpc(
@@ -164,31 +146,24 @@ export default function ProfileScreen() {
     );
 
     if (error) {
-      console.log(
-        "Profile unread messages error:",
-        error.message,
-      );
+      console.log("Profile unread messages error:", error.message);
 
       return;
     }
 
-    const rows =
-      (data ?? []) as ConversationSummaryRow[];
+    const rows = (data ?? []) as ConversationSummaryRow[];
 
     const nextUnreadCount = rows.reduce(
-      (total, row) =>
-        total + Number(row.unread_count ?? 0),
+      (total, row) => total + Number(row.unread_count ?? 0),
       0,
     );
 
-    unreadMessagesCache[user.id] =
-      nextUnreadCount;
+    unreadMessagesCache[user.id] = nextUnreadCount;
 
     setUnreadMessages(nextUnreadCount);
   }
 
-  const canManageGames =
-    role === "admin" || role === "organizer";
+  const canManageGames = role === "admin" || role === "organizer";
 
   function skillLabel(level: string) {
     if (level === "Beginner") {
@@ -240,43 +215,29 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView
-        style={styles.safeArea}
-        edges={["top"]}
-      >
+      <SafeAreaView style={styles.safeArea} edges={["top"]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator
-            size="large"
-            color={colors.primary}
-          />
+          <ActivityIndicator size="large" color={colors.primary} />
 
-          <Text style={styles.loadingText}>
-            {t("common.loading")}
-          </Text>
+          <Text style={styles.loadingText}>{t("common.loading")}</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={["top"]}
-    >
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={[
           styles.content,
-          isDesktopWeb &&
-            styles.contentDesktop,
+          isDesktopWeb && styles.contentDesktop,
         ]}
         showsVerticalScrollIndicator={false}
       >
         {/* HEADER */}
         <View style={styles.pageHeader}>
-          <Text style={styles.title}>
-            {t("profile.title")}
-          </Text>
+          <Text style={styles.title}>{t("profile.title")}</Text>
 
           <Pressable
             onPress={() => {
@@ -285,9 +246,7 @@ export default function ProfileScreen() {
             hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel={
-              isDark
-                ? "Switch to light mode"
-                : "Switch to dark mode"
+              isDark ? "Switch to light mode" : "Switch to dark mode"
             }
             style={({ pressed }) => [
               styles.themeButton,
@@ -295,11 +254,7 @@ export default function ProfileScreen() {
             ]}
           >
             <Ionicons
-              name={
-                isDark
-                  ? "sunny-outline"
-                  : "moon-outline"
-              }
+              name={isDark ? "sunny-outline" : "moon-outline"}
               size={20}
               color={colors.text}
             />
@@ -311,168 +266,72 @@ export default function ProfileScreen() {
           <View style={styles.avatarWrap}>
             <View style={styles.avatar}>
               {avatarUrl ? (
-                <Image
-                  source={{ uri: avatarUrl }}
-                  style={styles.avatarImage}
-                />
+                <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
               ) : (
-                <Ionicons
-                  name="person"
-                  size={45}
-                  color={colors.primary}
-                />
+                <Ionicons name="person" size={45} color={colors.primary} />
               )}
             </View>
 
             <View style={styles.avatarBadge}>
-              <Ionicons
-                name="football"
-                size={14}
-                color={colors.white}
-              />
+              <Ionicons name="football" size={14} color={colors.white} />
             </View>
           </View>
 
-          <Text
-            style={styles.playerName}
-            numberOfLines={1}
-          >
+          <Text style={styles.playerName} numberOfLines={1}>
             {displayName()}
           </Text>
 
-          <Text style={styles.playerRole}>
-            {profileRoleLabel()}
-          </Text>
+          <Text style={styles.playerRole}>{profileRoleLabel()}</Text>
         </View>
 
-        {/* SOCIAL SHORTCUTS */}
-        <View
-          style={[
-            styles.socialShortcuts,
-            isSmallPhone &&
-              styles.socialShortcutsSmall,
+        {/* MESSAGES */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.skillCard,
+            unreadMessages > 0 && styles.messageRowUnread,
+            pressed && styles.rowPressed,
           ]}
+          onPress={() => router.push("/messages")}
         >
-          {/* MESSAGES */}
-          <Pressable
-            style={({ pressed }) => [
-              styles.socialShortcutCard,
-              unreadMessages > 0 &&
-                styles.socialShortcutCardUnread,
-              pressed && styles.rowPressed,
-            ]}
-            onPress={() =>
-              router.push("/messages")
-            }
-          >
-            <View
-              style={styles.socialShortcutTop}
-            >
-              <View
-                style={styles.socialShortcutIcon}
-              >
-                <Ionicons
-                  name="chatbubble-ellipses-outline"
-                  size={25}
-                  color={colors.primary}
-                />
-              </View>
-
-              <View
-                style={styles.messageTopRight}
-              >
-                {unreadMessages > 0 && (
-                  <View
-                    style={
-                      styles.unreadMessagesBadge
-                    }
-                  >
-                    <Text
-                      style={
-                        styles.unreadMessagesBadgeText
-                      }
-                    >
-                      {unreadMessages > 99
-                        ? "99+"
-                        : unreadMessages}
-                    </Text>
-                  </View>
-                )}
-
-                <Ionicons
-                  name="chevron-forward"
-                  size={19}
-                  color={colors.textSecondary}
-                />
-              </View>
-            </View>
-
-            <Text
-              style={[
-                styles.socialShortcutTitle,
-                unreadMessages > 0 &&
-                  styles.socialShortcutTitleUnread,
-              ]}
-            >
-              Messages
-            </Text>
-
-            <Text
-              style={[
-                styles.socialShortcutSubtitle,
-                unreadMessages > 0 &&
-                  styles.socialShortcutSubtitleUnread,
-              ]}
-            >
-              {unreadMessagesLabel()}
-            </Text>
-          </Pressable>
-
-          {/* COMMUNITIES */}
-          <Pressable
-            style={({ pressed }) => [
-              styles.socialShortcutCard,
-              pressed && styles.rowPressed,
-            ]}
-            onPress={() =>
-              router.push("/communities")
-            }
-          >
-            <View
-              style={styles.socialShortcutTop}
-            >
-              <View
-                style={styles.socialShortcutIcon}
-              >
-                <Ionicons
-                  name="people-outline"
-                  size={27}
-                  color={colors.primary}
-                />
-              </View>
-
+          <View style={styles.rowLeft}>
+            <View style={styles.rowIcon}>
               <Ionicons
-                name="chevron-forward"
-                size={19}
-                color={colors.textSecondary}
+                name="chatbubble-ellipses-outline"
+                size={21}
+                color={colors.primary}
               />
             </View>
 
-            <Text
-              style={styles.socialShortcutTitle}
-            >
-              Communities
-            </Text>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Messages</Text>
 
-            <Text
-              style={
-                styles.socialShortcutSubtitle
-              }
-            >
-              Groups and posts
-            </Text>
-          </Pressable>
-        </View>
+              <Text
+                style={[
+                  styles.rowSubtitle,
+                  unreadMessages > 0 && styles.messageSubtitleUnread,
+                ]}
+              >
+                {unreadMessagesLabel()}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.messageRowRight}>
+            {unreadMessages > 0 && (
+              <View style={styles.unreadMessagesBadge}>
+                <Text style={styles.unreadMessagesBadgeText}>
+                  {unreadMessages > 99 ? "99+" : unreadMessages}
+                </Text>
+              </View>
+            )}
+
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color={colors.textSecondary}
+            />
+          </View>
+        </Pressable>
 
         {/* SKILL LEVEL */}
         <Pressable
@@ -480,9 +339,7 @@ export default function ProfileScreen() {
             styles.skillCard,
             pressed && styles.rowPressed,
           ]}
-          onPress={() =>
-            router.push("/edit-profile")
-          }
+          onPress={() => router.push("/edit-profile")}
         >
           <View style={styles.rowLeft}>
             <View style={styles.rowIcon}>
@@ -494,16 +351,10 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>
-                {t("profile.skillLevel")}
-              </Text>
+              <Text style={styles.rowTitle}>{t("profile.skillLevel")}</Text>
 
-              <Text
-                style={styles.rowSubtitle}
-              >
-                {skillLevel
-                  ? skillLabel(skillLevel)
-                  : t("profile.notSet")}
+              <Text style={styles.rowSubtitle}>
+                {skillLevel ? skillLabel(skillLevel) : t("profile.notSet")}
               </Text>
             </View>
           </View>
@@ -520,9 +371,7 @@ export default function ProfileScreen() {
           <MenuRow
             icon="person-outline"
             title={t("profile.editProfile")}
-            onPress={() =>
-              router.push("/edit-profile")
-            }
+            onPress={() => router.push("/edit-profile")}
             colors={colors}
             styles={styles}
           />
@@ -532,9 +381,7 @@ export default function ProfileScreen() {
           <MenuRow
             icon="settings-outline"
             title={t("profile.settings")}
-            onPress={() =>
-              router.push("/settings")
-            }
+            onPress={() => router.push("/settings")}
             colors={colors}
             styles={styles}
           />
@@ -543,9 +390,7 @@ export default function ProfileScreen() {
         {/* ADMIN / ORGANIZER TOOLS */}
         {canManageGames && (
           <>
-            <Text style={styles.sectionTitle}>
-              {t("profile.adminTools")}
-            </Text>
+            <Text style={styles.sectionTitle}>{t("profile.adminTools")}</Text>
 
             <View style={styles.adminSection}>
               <View style={styles.adminHeader}>
@@ -558,83 +403,45 @@ export default function ProfileScreen() {
                 </View>
 
                 <View style={styles.rowText}>
-                  <Text
-                    style={styles.adminTitle}
-                  >
+                  <Text style={styles.adminTitle}>
                     {t("profile.adminTools")}
                   </Text>
 
-                  <Text
-                    style={
-                      styles.adminSubtitle
-                    }
-                  >
-                    {t(
-                      "profile.adminToolsSubtitle",
-                    )}
+                  <Text style={styles.adminSubtitle}>
+                    {t("profile.adminToolsSubtitle")}
                   </Text>
                 </View>
               </View>
 
-              <View
-                style={styles.rowDivider}
-              />
+              <View style={styles.rowDivider} />
 
               <AdminRow
                 icon="add-circle-outline"
-                title={t(
-                  "profile.createGame",
-                )}
-                subtitle={t(
-                  "profile.createGameSubtitle",
-                )}
-                onPress={() =>
-                  router.push(
-                    "/admin/create-game",
-                  )
-                }
+                title={t("profile.createGame")}
+                subtitle={t("profile.createGameSubtitle")}
+                onPress={() => router.push("/admin/create-game")}
                 colors={colors}
                 styles={styles}
               />
 
-              <View
-                style={styles.rowDivider}
-              />
+              <View style={styles.rowDivider} />
 
               <AdminRow
                 icon="settings-outline"
-                title={t(
-                  "profile.manageGames",
-                )}
-                subtitle={t(
-                  "profile.manageGamesSubtitle",
-                )}
-                onPress={() =>
-                  router.push(
-                    "/admin/manage-games",
-                  )
-                }
+                title={t("profile.manageGames")}
+                subtitle={t("profile.manageGamesSubtitle")}
+                onPress={() => router.push("/admin/manage-games")}
                 colors={colors}
                 styles={styles}
               />
 
-              <View
-                style={styles.rowDivider}
-              />
+              <View style={styles.rowDivider} />
 
               <AdminRow
                 icon="card-outline"
-                title={t(
-                  "profile.paymentRequests",
-                )}
-                subtitle={t(
-                  "profile.paymentRequestsSubtitle",
-                )}
-                onPress={() =>
-                  router.push(
-                    "/admin/payment-requests",
-                  )
-                }
+                title={t("profile.paymentRequests")}
+                subtitle={t("profile.paymentRequestsSubtitle")}
+                onPress={() => router.push("/admin/payment-requests")}
                 colors={colors}
                 styles={styles}
               />
@@ -648,63 +455,37 @@ export default function ProfileScreen() {
   );
 }
 
-type ProfileStyles = ReturnType<
-  typeof createStyles
->;
+type ProfileStyles = ReturnType<typeof createStyles>;
 
 type MenuRowProps = {
-  icon:
-    | "person-outline"
-    | "settings-outline";
+  icon: "person-outline" | "settings-outline";
   title: string;
   onPress: () => void;
   colors: AppColors;
   styles: ProfileStyles;
 };
 
-function MenuRow({
-  icon,
-  title,
-  onPress,
-  colors,
-  styles,
-}: MenuRowProps) {
+function MenuRow({ icon, title, onPress, colors, styles }: MenuRowProps) {
   return (
     <Pressable
-      style={({ pressed }) => [
-        styles.menuRow,
-        pressed && styles.rowPressed,
-      ]}
+      style={({ pressed }) => [styles.menuRow, pressed && styles.rowPressed]}
       onPress={onPress}
     >
       <View style={styles.rowLeft}>
         <View style={styles.rowIcon}>
-          <Ionicons
-            name={icon}
-            size={20}
-            color={colors.primary}
-          />
+          <Ionicons name={icon} size={20} color={colors.primary} />
         </View>
 
-        <Text style={styles.menuRowTitle}>
-          {title}
-        </Text>
+        <Text style={styles.menuRowTitle}>{title}</Text>
       </View>
 
-      <Ionicons
-        name="chevron-forward"
-        size={20}
-        color={colors.textSecondary}
-      />
+      <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
     </Pressable>
   );
 }
 
 type AdminRowProps = {
-  icon:
-    | "add-circle-outline"
-    | "settings-outline"
-    | "card-outline";
+  icon: "add-circle-outline" | "settings-outline" | "card-outline";
   title: string;
   subtitle: string;
   onPress: () => void;
@@ -729,34 +510,16 @@ function AdminRow({
       onPress={onPress}
     >
       <View style={styles.rowIcon}>
-        <Ionicons
-          name={icon}
-          size={20}
-          color={colors.primary}
-        />
+        <Ionicons name={icon} size={20} color={colors.primary} />
       </View>
 
       <View style={styles.rowText}>
-        <Text
-          style={styles.adminButtonTitle}
-        >
-          {title}
-        </Text>
+        <Text style={styles.adminButtonTitle}>{title}</Text>
 
-        <Text
-          style={
-            styles.adminButtonSubtitle
-          }
-        >
-          {subtitle}
-        </Text>
+        <Text style={styles.adminButtonSubtitle}>{subtitle}</Text>
       </View>
 
-      <Ionicons
-        name="chevron-forward"
-        size={20}
-        color={colors.textSecondary}
-      />
+      <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
     </Pressable>
   );
 }
@@ -778,7 +541,7 @@ const createStyles = (colors: AppColors) =>
     socialShortcutCard: {
       flex: 1,
       minWidth: 0,
-      minHeight: 126,
+      minHeight: 112,
       borderRadius: 18,
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -874,6 +637,20 @@ const createStyles = (colors: AppColors) =>
       alignSelf: "center",
       paddingHorizontal: 28,
       paddingTop: 24,
+    },
+    messageRowRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 9,
+    },
+
+    messageRowUnread: {
+      borderColor: colors.primary,
+    },
+
+    messageSubtitleUnread: {
+      color: colors.primary,
+      fontWeight: "700",
     },
 
     loadingContainer: {
@@ -980,6 +757,7 @@ const createStyles = (colors: AppColors) =>
 
     skillCard: {
       minHeight: 72,
+      marginBottom: 12,
       borderRadius: 18,
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -1037,7 +815,7 @@ const createStyles = (colors: AppColors) =>
     /* MENU */
 
     menuCard: {
-      marginTop: 14,
+      marginTop: 0,
       borderRadius: 18,
       overflow: "hidden",
       backgroundColor: colors.surface,

@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
-import { Image as ExpoImage } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
@@ -25,16 +24,9 @@ import { COLORS } from "../../constants/colors";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { supabase } from "../../lib/supabase";
 
-const LOGIN_HERO = require("../../../assets/images/home.jpg");
 const GOOGLE_ICON = require("../../../assets/images/google-g-icon.png");
 
 const NATIVE_REDIRECT_URL = "addisfootball://auth/callback";
-
-/*
- * Replace these with your real public URLs.
- */
-const TERMS_URL = "YOUR_TERMS_URL";
-const PRIVACY_URL = "YOUR_PRIVACY_URL";
 
 export default function LoginScreen() {
   const { width, height } = useWindowDimensions();
@@ -44,20 +36,15 @@ export default function LoginScreen() {
 
   const horizontalPadding = isSmallScreen ? 18 : 26;
 
-  const bottomSpacing = isSmallScreen ? 16 : isLargeScreen ? 36 : 30;
-
-  // Compact typography only on short/narrow phones.
   const brandTitleSize = isSmallScreen ? 34 : isLargeScreen ? 46 : 43;
   const taglineSize = isSmallScreen ? 20 : isLargeScreen ? 25 : 24;
-  const subTaglineSize = isSmallScreen ? 18 : isLargeScreen ? 23 : 22;
+  const subTaglineSize = isSmallScreen ? 18 : isLargeScreen ? 22 : 21;
 
-  // Preserve comfortable tap targets while reducing vertical usage.
   const authButtonHeight = isSmallScreen ? 50 : isLargeScreen ? 60 : 58;
 
-  // Small-phone spacing only. Medium and large remain unchanged.
-  const brandBottomSpacing = isSmallScreen ? 12 : isLargeScreen ? 30 : 28;
+  const brandBottomSpacing = isSmallScreen ? 18 : 26;
   const authGap = isSmallScreen ? 8 : 12;
-  const legalTopSpacing = isSmallScreen ? 6 : 12;
+
   const [loadingProvider, setLoadingProvider] = useState<
     "google" | "telegram" | null
   >(null);
@@ -75,27 +62,6 @@ export default function LoginScreen() {
     Alert.alert(title, message);
   }
 
-  async function openLegalLink(url: string) {
-    if (!url || url.startsWith("YOUR_")) {
-      showMessage("Coming soon", "This page is not available yet.");
-      return;
-    }
-
-    try {
-      const supported = await Linking.canOpenURL(url);
-
-      if (!supported) {
-        throw new Error("This link could not be opened.");
-      }
-
-      await Linking.openURL(url);
-    } catch (error) {
-      console.log("Legal link error:", error);
-
-      showMessage("Unable to open page", "Please try again.");
-    }
-  }
-
   async function finishNativeOAuth(url: string) {
     console.log("OAuth callback URL:", url);
 
@@ -103,16 +69,17 @@ export default function LoginScreen() {
 
     const queryParams = parsed.queryParams ?? {};
 
-    const code = typeof queryParams.code === "string" ? queryParams.code : null;
+    const code =
+      typeof queryParams.code === "string" ? queryParams.code : null;
 
     if (code) {
       console.log("OAuth callback contains PKCE code");
 
-      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+      const { data, error } =
+        await supabase.auth.exchangeCodeForSession(code);
 
       if (error) {
         console.log("OAuth code exchange error:", error);
-
         throw error;
       }
 
@@ -130,10 +97,6 @@ export default function LoginScreen() {
 
     /*
      * Support implicit-flow tokens too.
-     *
-     * Depending on the OAuth/Supabase configuration,
-     * access_token and refresh_token may be returned
-     * in the URL fragment instead of query parameters.
      */
     const hashIndex = url.indexOf("#");
 
@@ -143,9 +106,7 @@ export default function LoginScreen() {
       const hashParams = new URLSearchParams(hash);
 
       const accessToken = hashParams.get("access_token");
-
       const refreshToken = hashParams.get("refresh_token");
-
       const errorDescription = hashParams.get("error_description");
 
       if (errorDescription) {
@@ -162,7 +123,6 @@ export default function LoginScreen() {
 
         if (error) {
           console.log("OAuth setSession error:", error);
-
           throw error;
         }
 
@@ -179,10 +139,6 @@ export default function LoginScreen() {
       }
     }
 
-    /*
-     * Final check in case Supabase already persisted
-     * the session before the callback was processed.
-     */
     const {
       data: { session },
       error: sessionError,
@@ -204,28 +160,22 @@ export default function LoginScreen() {
     );
   }
 
-  async function startNativeOAuth(provider: "google" | "custom:telegram") {
+  async function startNativeOAuth(
+    provider: "google" | "custom:telegram",
+  ) {
     console.log("Starting native OAuth:", provider);
-
     console.log("Native redirect URL:", NATIVE_REDIRECT_URL);
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: NATIVE_REDIRECT_URL,
-
-        /*
-         * Critical for native:
-         * Supabase gives us the provider URL,
-         * but we open it ourselves.
-         */
         skipBrowserRedirect: true,
       },
     });
 
     if (error) {
       console.log("Supabase OAuth start error:", error);
-
       throw error;
     }
 
@@ -246,7 +196,11 @@ export default function LoginScreen() {
       return;
     }
 
-    if (result.type === "success" && "url" in result && result.url) {
+    if (
+      result.type === "success" &&
+      "url" in result &&
+      result.url
+    ) {
       await finishNativeOAuth(result.url);
       return;
     }
@@ -262,9 +216,6 @@ export default function LoginScreen() {
 
       setLoadingProvider("google");
 
-      /*
-       * WEB
-       */
       if (Platform.OS === "web") {
         const redirectTo = `${window.location.origin}/auth/callback`;
 
@@ -284,9 +235,6 @@ export default function LoginScreen() {
         return;
       }
 
-      /*
-       * IOS / ANDROID
-       */
       await startNativeOAuth("google");
     } catch (error: any) {
       console.log("Google sign-in error:", error);
@@ -308,9 +256,6 @@ export default function LoginScreen() {
 
       setLoadingProvider("telegram");
 
-      /*
-       * WEB
-       */
       if (Platform.OS === "web") {
         const redirectTo = `${window.location.origin}/auth/callback`;
 
@@ -330,9 +275,6 @@ export default function LoginScreen() {
         return;
       }
 
-      /*
-       * IOS / ANDROID
-       */
       await startNativeOAuth("custom:telegram");
     } catch (error: any) {
       console.log("Telegram sign-in error:", error);
@@ -349,186 +291,179 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.container}>
-        <ExpoImage
-          source={LOGIN_HERO}
-          style={styles.heroImage}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          priority="high"
-          transition={0}
+        {/* Background */}
+
+        <LinearGradient
+          pointerEvents="none"
+          colors={["#06231A", "#031711", "#020D09"]}
+          locations={[0, 0.52, 1]}
+          style={StyleSheet.absoluteFillObject}
         />
 
-        <View pointerEvents="none" style={styles.photoOverlay} />
+        <View pointerEvents="none" style={styles.topGlow} />
+
+        {/* =====================================================
+            TOP VISUAL
+        ====================================================== */}
+
+        <View pointerEvents="none" style={styles.visualArea}>
+          <View style={styles.pitch}>
+            <View style={styles.pitchHalfLine} />
+
+            <View style={styles.pitchCenterCircle}>
+              <View style={styles.pitchCenterDot} />
+            </View>
+
+            <View style={styles.penaltyAreaLeft} />
+            <View style={styles.penaltyAreaRight} />
+          </View>
+        </View>
+
+        {/* Soft transition between artwork and content */}
 
         <LinearGradient
           pointerEvents="none"
           colors={[
-            "rgba(7,9,8,0)",
-            "rgba(7,9,8,0.04)",
-            "rgba(7,9,8,0.12)",
-            "rgba(7,9,8,0.32)",
-            "rgba(7,9,8,0.58)",
-            "rgba(7,9,8,0.78)",
-            "rgba(7,9,8,0.90)",
+            "rgba(2,13,9,0)",
+            "rgba(2,13,9,0.65)",
+            "#020D09",
           ]}
-          locations={[0, 0.12, 0.25, 0.42, 0.6, 0.8, 1]}
-          style={styles.bottomGradient}
+          locations={[0, 0.58, 1]}
+          style={styles.visualFade}
         />
 
-        <View pointerEvents="box-none" style={styles.content}>
+        {/* =====================================================
+            BOTTOM LOGIN SECTION
+        ====================================================== */}
+
+        <View
+          style={[
+            styles.loginSection,
+            {
+              paddingHorizontal: horizontalPadding,
+              paddingBottom: isSmallScreen ? 16 : 30,
+            },
+          ]}
+        >
           <View
             style={[
-              styles.loginPanel,
-              Platform.OS !== "web" && {
-                left: horizontalPadding,
-                right: horizontalPadding,
-                bottom: bottomSpacing,
+              styles.brandArea,
+              {
+                marginBottom: brandBottomSpacing,
               },
             ]}
           >
-            <View
-              style={[styles.brandArea, { marginBottom: brandBottomSpacing }]}
+            <Text
+              style={[
+                styles.brandTitle,
+                {
+                  fontSize: brandTitleSize,
+                  lineHeight: brandTitleSize + 7,
+                },
+              ]}
             >
-              <Text
-                style={[
-                  styles.brandTitle,
-                  {
-                    fontSize: brandTitleSize,
-                    lineHeight: brandTitleSize + 7,
-                  },
-                ]}
-              >
-                Addis <Text style={styles.brandAccent}>Football</Text>
-              </Text>
+              Addis <Text style={styles.brandAccent}>Football</Text>
+            </Text>
 
-              <Text
-                style={[
-                  styles.tagline,
-                  {
-                    fontSize: taglineSize,
-                    lineHeight: taglineSize + 6,
-                  },
-                ]}
-              >
-                Find your game.
-              </Text>
+            <Text
+              style={[
+                styles.tagline,
+                {
+                  fontSize: taglineSize,
+                  lineHeight: taglineSize + 6,
+                },
+              ]}
+            >
+              Find your game.
+            </Text>
 
-              <Text
-                style={[
-                  styles.subTagline,
-                  {
-                    fontSize: subTaglineSize,
-                    lineHeight: subTaglineSize + 7,
-                  },
-                ]}
-              >
-                Join. Play. Connect.
-              </Text>
-            </View>
+            <Text
+              style={[
+                styles.subTagline,
+                {
+                  fontSize: subTaglineSize,
+                  lineHeight: subTaglineSize + 7,
+                },
+              ]}
+            >
+              Join. Play. Connect.
+            </Text>
+          </View>
 
-            <View style={[styles.authArea, { gap: authGap }]}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("login.continueGoogle")}
-                disabled={loading}
-                onPress={handleGoogleSignIn}
-                style={({ pressed }) => [
-                  styles.googleButton,
-                  {
-                    height: authButtonHeight,
-                    borderRadius: authButtonHeight / 2,
-                  },
-                  pressed && !loading && styles.googleButtonPressed,
-                  loading && styles.authButtonDisabled,
-                ]}
-              >
-                {loadingProvider === "google" ? (
-                  <ActivityIndicator size="small" color="#4285F4" />
-                ) : (
-                  <>
-                    <Image
-                      source={GOOGLE_ICON}
-                      style={styles.googleGImage}
-                      resizeMode="contain"
-                    />
+          <View style={[styles.authArea, { gap: authGap }]}>
+            {/* GOOGLE */}
 
-                    <Text style={styles.googleButtonText}>
-                      {t("login.continueGoogle")}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("login.continueGoogle")}
+              disabled={loading}
+              onPress={handleGoogleSignIn}
+              style={({ pressed }) => [
+                styles.googleButton,
+                {
+                  height: authButtonHeight,
+                  borderRadius: authButtonHeight / 2,
+                },
+                pressed && !loading && styles.googleButtonPressed,
+                loading && styles.authButtonDisabled,
+              ]}
+            >
+              {loadingProvider === "google" ? (
+                <ActivityIndicator size="small" color="#4285F4" />
+              ) : (
+                <>
+                  <Image
+                    source={GOOGLE_ICON}
+                    style={styles.googleGImage}
+                    resizeMode="contain"
+                  />
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={t("login.continueTelegram")}
-                disabled={loading}
-                onPress={handleTelegramSignIn}
-                style={({ pressed }) => [
-                  styles.telegramButton,
-                  {
-                    height: authButtonHeight,
-                    borderRadius: authButtonHeight / 2,
-                  },
-                  pressed && !loading && styles.telegramButtonPressed,
-                  loading && styles.authButtonDisabled,
-                ]}
-              >
-                {loadingProvider === "telegram" ? (
-                  <>
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  <Text style={styles.googleButtonText}>
+                    {t("login.continueGoogle")}
+                  </Text>
+                </>
+              )}
+            </Pressable>
 
-                    <Text style={styles.telegramButtonText}>
-                      {t("login.connecting")}
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Ionicons name="paper-plane" size={24} color="#FFFFFF" />
+            {/* TELEGRAM */}
 
-                    <Text style={styles.telegramButtonText}>
-                      {t("login.continueTelegram")}
-                    </Text>
-                  </>
-                )}
-              </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t("login.continueTelegram")}
+              disabled={loading}
+              onPress={handleTelegramSignIn}
+              style={({ pressed }) => [
+                styles.telegramButton,
+                {
+                  height: authButtonHeight,
+                  borderRadius: authButtonHeight / 2,
+                },
+                pressed && !loading && styles.telegramButtonPressed,
+                loading && styles.authButtonDisabled,
+              ]}
+            >
+              {loadingProvider === "telegram" ? (
+                <>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
 
-              <View style={[styles.legalRow, { marginTop: legalTopSpacing }]}>
-                <Pressable
-                  accessibilityRole="link"
-                  accessibilityLabel="Terms of Service"
-                  hitSlop={10}
-                  onPress={() => openLegalLink(TERMS_URL)}
-                  style={({ pressed }) => [
-                    styles.legalPressable,
-                    pressed && styles.legalPressablePressed,
-                  ]}
-                >
-                  <Text style={styles.legalText}>Terms of Service</Text>
-                </Pressable>
+                  <Text style={styles.telegramButtonText}>
+                    {t("login.connecting")}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons
+                    name="paper-plane"
+                    size={24}
+                    color="#FFFFFF"
+                  />
 
-                <Text
-                  style={styles.legalDot}
-                  accessibilityElementsHidden
-                  importantForAccessibility="no"
-                >
-                  •
-                </Text>
-
-                <Pressable
-                  accessibilityRole="link"
-                  accessibilityLabel="Privacy Policy"
-                  hitSlop={10}
-                  onPress={() => openLegalLink(PRIVACY_URL)}
-                  style={({ pressed }) => [
-                    styles.legalPressable,
-                    pressed && styles.legalPressablePressed,
-                  ]}
-                >
-                  <Text style={styles.legalText}>Privacy Policy</Text>
-                </Pressable>
-              </View>
-            </View>
+                  <Text style={styles.telegramButtonText}>
+                    {t("login.continueTelegram")}
+                  </Text>
+                </>
+              )}
+            </Pressable>
           </View>
         </View>
       </View>
@@ -539,80 +474,165 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#0B0D0C",
+    backgroundColor: "#020D09",
   },
 
   container: {
     flex: 1,
     position: "relative",
     overflow: "hidden",
-    backgroundColor: "#0B0D0C",
+    backgroundColor: "#020D09",
   },
 
-  heroImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: "100%",
-    height: "100%",
-  },
+  /* =========================================================
+     BACKGROUND
+  ========================================================== */
 
-  photoOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(8,8,6,0.08)",
-  },
-
-  bottomGradient: {
+  topGlow: {
     position: "absolute",
+    top: -180,
+    alignSelf: "center",
+    width: 500,
+    height: 500,
+    borderRadius: 250,
+    backgroundColor: "rgba(15,190,110,0.08)",
+  },
+
+  /* =========================================================
+     TOP VISUAL
+  ========================================================== */
+
+  visualArea: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "48%",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+
+  pitch: {
+    position: "absolute",
+    top: "9%",
+    width: "88%",
+    height: "72%",
+
+    borderWidth: 1,
+    borderColor: "rgba(94,218,153,0.14)",
+    borderRadius: 22,
+
+    overflow: "hidden",
+  },
+
+  pitchHalfLine: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: "50%",
+    width: 1,
+    backgroundColor: "rgba(94,218,153,0.14)",
+  },
+
+  pitchCenterCircle: {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+
+    width: 116,
+    height: 116,
+
+    marginLeft: -58,
+    marginTop: -58,
+
+    borderRadius: 58,
+
+    borderWidth: 1,
+    borderColor: "rgba(94,218,153,0.16)",
+
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  pitchCenterDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(94,218,153,0.28)",
+  },
+
+  penaltyAreaLeft: {
+    position: "absolute",
+    left: -1,
+    top: "29%",
+
+    width: "19%",
+    height: "42%",
+
+    borderWidth: 1,
+    borderLeftWidth: 0,
+    borderColor: "rgba(94,218,153,0.14)",
+  },
+
+  penaltyAreaRight: {
+    position: "absolute",
+    right: -1,
+    top: "29%",
+
+    width: "19%",
+    height: "42%",
+
+    borderWidth: 1,
+    borderRightWidth: 0,
+    borderColor: "rgba(94,218,153,0.14)",
+  },
+
+  visualFade: {
+    position: "absolute",
+    top: "34%",
+    left: 0,
+    right: 0,
+    height: "18%",
+  },
+
+  /* =========================================================
+     LOGIN SECTION
+  ========================================================== */
+
+  loginSection: {
+    position: "absolute",
+
     left: 0,
     right: 0,
     bottom: 0,
-    height: "66%",
-  },
 
-  content: {
-    ...StyleSheet.absoluteFillObject,
+    zIndex: 20,
+    elevation: 20,
 
     ...(Platform.OS === "web"
       ? {
           width: "100%",
           maxWidth: 560,
           alignSelf: "center",
+          left: "auto",
+          right: "auto",
         }
       : {}),
   },
 
-  loginPanel: {
-    position: "absolute",
-
-    ...(Platform.OS === "web"
-      ? {
-          left: 26,
-          right: 26,
-          top: 40,
-        }
-      : {
-          left: 26,
-          right: 26,
-          bottom: 30,
-        }),
-  },
-
   brandArea: {
-    marginBottom: 28,
+    width: "100%",
   },
 
   brandTitle: {
     color: "#FFFFFF",
+
     fontSize: 43,
     lineHeight: 50,
+
     fontWeight: "900",
     letterSpacing: -1.8,
-
-    textShadowColor: "rgba(0,0,0,0.28)",
-    textShadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    textShadowRadius: 8,
   },
 
   brandAccent: {
@@ -621,50 +641,47 @@ const styles = StyleSheet.create({
 
   tagline: {
     color: "#FFFFFF",
+
     fontSize: 24,
     lineHeight: 30,
-    fontWeight: "500",
-    marginTop: 8,
-    letterSpacing: -0.4,
 
-    textShadowColor: "rgba(0,0,0,0.32)",
-    textShadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    textShadowRadius: 6,
+    fontWeight: "600",
+
+    marginTop: 8,
+
+    letterSpacing: -0.4,
   },
 
   subTagline: {
-    color: "rgba(255,255,255,0.84)",
-    fontSize: 22,
-    lineHeight: 29,
-    fontWeight: "400",
-    marginTop: 2,
-    letterSpacing: -0.3,
+    color: "rgba(255,255,255,0.68)",
 
-    textShadowColor: "rgba(0,0,0,0.32)",
-    textShadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    textShadowRadius: 6,
+    fontSize: 21,
+    lineHeight: 28,
+
+    fontWeight: "400",
+
+    marginTop: 2,
+
+    letterSpacing: -0.3,
   },
+
+  /* =========================================================
+     AUTH
+  ========================================================== */
 
   authArea: {
     width: "100%",
-    gap: 12,
   },
 
   googleButton: {
     width: "100%",
-    height: 58,
-    borderRadius: 29,
+
     backgroundColor: "#FFFFFF",
 
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+
     gap: 13,
 
     paddingHorizontal: 22,
@@ -672,10 +689,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.92)",
 
-    elevation: 6,
+    elevation: 5,
 
     shadowColor: "#000000",
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.18,
     shadowRadius: 12,
     shadowOffset: {
       width: 0,
@@ -690,8 +707,10 @@ const styles = StyleSheet.create({
 
   googleButtonText: {
     color: "#1C211F",
+
     fontSize: 16,
     lineHeight: 21,
+
     fontWeight: "800",
     textAlign: "center",
   },
@@ -703,13 +722,13 @@ const styles = StyleSheet.create({
 
   telegramButton: {
     width: "100%",
-    height: 58,
-    borderRadius: 29,
+
     backgroundColor: "#229ED9",
 
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+
     gap: 12,
 
     paddingHorizontal: 22,
@@ -717,10 +736,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#4DC5F7",
 
-    elevation: 6,
+    elevation: 5,
 
     shadowColor: "#000000",
-    shadowOpacity: 0.22,
+    shadowOpacity: 0.2,
     shadowRadius: 12,
     shadowOffset: {
       width: 0,
@@ -735,40 +754,14 @@ const styles = StyleSheet.create({
 
   telegramButtonText: {
     color: "#FFFFFF",
+
     fontSize: 16,
     lineHeight: 21,
+
     fontWeight: "800",
     textAlign: "center",
+
     flexShrink: 1,
-  },
-
-  legalRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    marginTop: 12,
-    paddingBottom: 2,
-  },
-
-  legalPressable: {
-    paddingVertical: 4,
-  },
-
-  legalPressablePressed: {
-    opacity: 0.6,
-  },
-
-  legalText: {
-    color: "rgba(255,255,255,0.74)",
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: "500",
-  },
-
-  legalDot: {
-    color: "rgba(255,255,255,0.55)",
-    fontSize: 12,
   },
 
   authButtonDisabled: {
