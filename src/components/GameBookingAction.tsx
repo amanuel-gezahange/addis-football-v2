@@ -57,6 +57,8 @@ export type GameBookingState = {
 
 type Props = {
   gameId: string | number;
+  externalJoinTrigger?: number;
+  hideActionUI?: boolean;
   title: string;
   price: number;
   spotsLeft: number;
@@ -93,6 +95,8 @@ export default function GameBookingAction({
   onSpotsChange,
   onBookingStateChange,
   onDirectionsPress,
+  externalJoinTrigger = 0,
+  hideActionUI = false,
 }: Props) {
   const { t } = useLanguage();
 
@@ -292,6 +296,13 @@ export default function GameBookingAction({
     // Available games let the player choose how many spots to reserve.
     openQuantityPicker();
   }
+  useEffect(() => {
+    if (!externalJoinTrigger) return;
+
+    void handleJoinGame();
+    // externalJoinTrigger intentionally controls when this runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalJoinTrigger]);
 
   function decreaseQuantity() {
     setSelectedQuantity((current) => Math.max(1, current - 1));
@@ -628,68 +639,81 @@ export default function GameBookingAction({
 
   return (
     <>
-      {stateLoading ? null : isCancelled ? (
-        <View style={styles.cancelledFooter}>
-          <View style={styles.cancelledIcon}>
-            <Ionicons name="close" size={18} color="#B42318" />
-          </View>
-          <View style={styles.cancelledContent}>
-            <Text style={styles.cancelledTitle}>
-              {t("bookingAction.gameCancelled")}
-            </Text>
-            <Text style={styles.cancelledText}>
-              {t("bookingAction.gameCancelledDescription")}
-            </Text>
-          </View>
-        </View>
-      ) : isConfirmed ? null : isPendingPayment && isPaymentSubmitted ? null : (
-        <View style={styles.wrapper}>
-          <View style={styles.footerInfo}>
-            <Text style={styles.price}>
-              {numericPrice === 0 ? t("gameCard.free") : `${numericPrice} ETB`}
-            </Text>
-            <Text style={[styles.spots, isFull && styles.spotsFull]}>
-              {isFull
-                ? t("gameCard.gameFull")
-                : `${spotsLeft} ${t("gameCard.spotsLeft")}`}
-            </Text>
-          </View>
+      {!hideActionUI && (
+        <>
+          {stateLoading ? null : isCancelled ? (
+            <View style={styles.cancelledFooter}>
+              <View style={styles.cancelledIcon}>
+                <Ionicons name="close" size={18} color="#B42318" />
+              </View>
 
-          <Pressable
-            style={({ pressed }) => [
-              styles.actionButtonPressable,
-              pressed && !actionDisabled && styles.buttonPressed,
-              actionDisabled && styles.disabledButton,
-            ]}
-            onPress={handleJoinGame}
-            disabled={actionDisabled}
-          >
-            {isFull && !bookingStatus ? (
-              <View style={[styles.actionButton, styles.waitlistButton]}>
-                <Text
-                  style={[styles.actionButtonText, styles.waitlistButtonText]}
-                >
-                  {getButtonText()}
+              <View style={styles.cancelledContent}>
+                <Text style={styles.cancelledTitle}>
+                  {t("bookingAction.gameCancelled")}
+                </Text>
+
+                <Text style={styles.cancelledText}>
+                  {t("bookingAction.gameCancelledDescription")}
                 </Text>
               </View>
-            ) : (
-              <LinearGradient
-                colors={ACTION_GRADIENT}
-                start={ACTION_GRADIENT_START}
-                end={ACTION_GRADIENT_END}
-                style={styles.actionButton}
+            </View>
+          ) : isConfirmed ? null : isPendingPayment &&
+            isPaymentSubmitted ? null : (
+            <View style={styles.wrapper}>
+              <View style={styles.footerInfo}>
+                <Text style={styles.price}>
+                  {numericPrice === 0
+                    ? t("gameCard.free")
+                    : `${numericPrice} ETB`}
+                </Text>
+
+                <Text style={[styles.spots, isFull && styles.spotsFull]}>
+                  {isFull
+                    ? t("gameCard.gameFull")
+                    : `${spotsLeft} ${t("gameCard.spotsLeft")}`}
+                </Text>
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionButtonPressable,
+                  pressed && !actionDisabled && styles.buttonPressed,
+                  actionDisabled && styles.disabledButton,
+                ]}
+                onPress={handleJoinGame}
+                disabled={actionDisabled}
               >
-                {joining ? (
-                  <ActivityIndicator size="small" color="#F7F8FA" />
+                {isFull && !bookingStatus ? (
+                  <View style={[styles.actionButton, styles.waitlistButton]}>
+                    <Text
+                      style={[
+                        styles.actionButtonText,
+                        styles.waitlistButtonText,
+                      ]}
+                    >
+                      {getButtonText()}
+                    </Text>
+                  </View>
                 ) : (
-                  <Text style={styles.gradientButtonText}>
-                    {getButtonText()}
-                  </Text>
+                  <LinearGradient
+                    colors={ACTION_GRADIENT}
+                    start={ACTION_GRADIENT_START}
+                    end={ACTION_GRADIENT_END}
+                    style={styles.actionButton}
+                  >
+                    {joining ? (
+                      <ActivityIndicator size="small" color="#F7F8FA" />
+                    ) : (
+                      <Text style={styles.gradientButtonText}>
+                        {getButtonText()}
+                      </Text>
+                    )}
+                  </LinearGradient>
                 )}
-              </LinearGradient>
-            )}
-          </Pressable>
-        </View>
+              </Pressable>
+            </View>
+          )}
+        </>
       )}
 
       {!!paymentMessage && (
@@ -723,6 +747,7 @@ export default function GameBookingAction({
 
             <View style={styles.checkoutContent}>
               <Text style={styles.checkoutTitle}>How many spots?</Text>
+
               <Text style={styles.checkoutSubtitle}>
                 {spotsLeft} {spotsLeft === 1 ? "spot" : "spots"} available
               </Text>
@@ -773,6 +798,7 @@ export default function GameBookingAction({
                           selectedQuantity === 1 ? "spot" : "spots"
                         } × ${numericPrice} ETB`}
                   </Text>
+
                   <Text style={styles.checkoutPriceSubtext}>Total</Text>
                 </View>
 
@@ -838,6 +864,7 @@ export default function GameBookingAction({
                 <Text style={styles.multiSpotSummaryLabel}>
                   {selectedQuantity} spots
                 </Text>
+
                 {numericPrice > 0 && (
                   <Text style={styles.multiSpotSummaryCalculation}>
                     {numericPrice} ETB × {selectedQuantity}
@@ -905,33 +932,41 @@ export default function GameBookingAction({
                 <Ionicons name="chevron-back" size={24} color="#14201B" />
               </Pressable>
             </View>
+
             <View style={styles.checkoutContent}>
               <Text style={styles.checkoutTitle}>
                 Select players ({selectedQuantity})
               </Text>
+
               <Text style={styles.checkoutSubtitle}>
                 Choose who will join this game.
               </Text>
+
               <View style={styles.playerSelectedCard}>
                 <View style={styles.playerAvatarFallback}>
                   <Ionicons name="person" size={18} color="#14201B" />
                 </View>
+
                 <Text style={styles.playerName}>You</Text>
+
                 <View style={styles.youBadge}>
                   <Text style={styles.youBadgeText}>You</Text>
                 </View>
               </View>
+
               {selectedQuantity > 1 && (
                 <Text style={styles.playerSectionTitle}>
                   Your friends · choose {selectedQuantity - 1}
                 </Text>
               )}
+
               <ScrollView
                 style={styles.friendPickerList}
                 showsVerticalScrollIndicator={false}
               >
                 {friends.map((friend: any) => {
                   const selected = selectedFriendIds.includes(friend.id);
+
                   return (
                     <Pressable
                       key={friend.id}
@@ -956,9 +991,11 @@ export default function GameBookingAction({
                           <Ionicons name="person" size={18} color="#14201B" />
                         </View>
                       )}
+
                       <Text style={styles.playerName}>
                         {friend.full_name || "Player"}
                       </Text>
+
                       <View
                         style={[
                           styles.friendAddButton,
@@ -977,6 +1014,7 @@ export default function GameBookingAction({
                     </Pressable>
                   );
                 })}
+
                 {selectedQuantity > 1 && friends.length === 0 && (
                   <Pressable
                     style={styles.addFriendsEmpty}
@@ -990,6 +1028,7 @@ export default function GameBookingAction({
                       size={22}
                       color="#00B77A"
                     />
+
                     <Text style={styles.addFriendsEmptyText}>
                       Add friends first
                     </Text>
@@ -997,6 +1036,7 @@ export default function GameBookingAction({
                 )}
               </ScrollView>
             </View>
+
             <View style={styles.checkoutFooter}>
               <Pressable
                 style={styles.checkoutPrimaryPressable}
@@ -1041,10 +1081,12 @@ export default function GameBookingAction({
             {selectedPaymentMethod === null ? (
               <View style={styles.checkoutContent}>
                 <Text style={styles.checkoutTitle}>Choose payment method</Text>
+
                 <Text style={styles.checkoutSubtitle}>
                   Pay {totalAmount} ETB for {selectedQuantity}{" "}
                   {selectedQuantity === 1 ? "player" : "players"}
                 </Text>
+
                 {numericPrice > 0 && (
                   <Text style={styles.checkoutCalculation}>
                     ({numericPrice} ETB × {selectedQuantity})
@@ -1059,6 +1101,7 @@ export default function GameBookingAction({
                     enabled={Boolean(paymentDetails.payment_phone)}
                     onPress={() => selectPaymentMethod("telebirr")}
                   />
+
                   <CheckoutPaymentChoice
                     logoUri={CBE_BIRR_LOGO}
                     title="CBE Birr"
@@ -1066,6 +1109,7 @@ export default function GameBookingAction({
                     enabled={Boolean(paymentDetails.bank_account_number)}
                     onPress={() => selectPaymentMethod("cbe_birr")}
                   />
+
                   <CheckoutPaymentChoice
                     logoSource={CBE_MOBILE_LOGO}
                     title="CBE Mobile Banking"
@@ -1081,6 +1125,7 @@ export default function GameBookingAction({
                   <Text style={styles.checkoutTitle}>
                     {selectedPaymentInfo?.label} payment
                   </Text>
+
                   <Text style={styles.checkoutSubtitle}>
                     Send the exact amount below. After paying, tap "I've paid"
                     to notify the organizer.
@@ -1090,6 +1135,7 @@ export default function GameBookingAction({
                     <Text style={styles.checkoutFieldLabel}>
                       Send this amount
                     </Text>
+
                     <Text style={styles.checkoutAmount}>{totalAmount} ETB</Text>
                   </View>
 
@@ -1100,6 +1146,7 @@ export default function GameBookingAction({
                           ? "To this number"
                           : "To this account"}
                       </Text>
+
                       <Text style={styles.checkoutFieldValue}>
                         {selectedPaymentInfo?.number ?? "Not provided"}
                       </Text>
@@ -1127,6 +1174,7 @@ export default function GameBookingAction({
                         <Text style={styles.checkoutFieldLabel}>
                           Account name
                         </Text>
+
                         <Text style={styles.checkoutFieldValue}>
                           {selectedPaymentInfo.accountName}
                         </Text>
@@ -1141,26 +1189,31 @@ export default function GameBookingAction({
                           1
                         </Text>
                       </View>
+
                       <Text style={styles.checkoutInstructionText}>
                         Copy the Telebirr number
                       </Text>
                     </View>
+
                     <View style={styles.checkoutInstructionRow}>
                       <View style={styles.checkoutInstructionNumber}>
                         <Text style={styles.checkoutInstructionNumberText}>
                           2
                         </Text>
                       </View>
+
                       <Text style={styles.checkoutInstructionText}>
                         Open {selectedPaymentInfo?.label}
                       </Text>
                     </View>
+
                     <View style={styles.checkoutInstructionRow}>
                       <View style={styles.checkoutInstructionNumber}>
                         <Text style={styles.checkoutInstructionNumberText}>
                           3
                         </Text>
                       </View>
+
                       <Text style={styles.checkoutInstructionText}>
                         Send exactly {totalAmount} ETB
                       </Text>
@@ -1192,6 +1245,7 @@ export default function GameBookingAction({
                           <Text style={styles.gradientButtonText}>
                             I've paid
                           </Text>
+
                           <Ionicons
                             name="checkmark-circle-outline"
                             size={22}
@@ -1220,14 +1274,18 @@ export default function GameBookingAction({
             <View style={styles.successIcon}>
               <Ionicons name="checkmark" size={42} color="#F7F8FA" />
             </View>
+
             <Text style={styles.successTitle}>
               {t("bookingSuccess.youreIn")}
             </Text>
+
             <Text style={styles.successGameTitle}>{title}</Text>
+
             <Text style={styles.successText}>
               {selectedQuantity} {selectedQuantity === 1 ? "spot" : "spots"}{" "}
               confirmed
             </Text>
+
             <Pressable
               style={({ pressed }) => [
                 styles.primaryButton,
@@ -1258,17 +1316,22 @@ export default function GameBookingAction({
             style={StyleSheet.absoluteFill}
             onPress={() => setWaitlistModalVisible(false)}
           />
+
           <View style={styles.sheetCentered}>
             <View style={styles.handle} />
+
             <View style={styles.waitlistIcon}>
               <Ionicons name="time-outline" size={32} color="#18C8FF" />
             </View>
+
             <Text style={styles.sheetTitle}>
               {t("gameCard.waitlistSuccessTitle")}
             </Text>
+
             <Text style={styles.sheetSubtitle}>
               {t("gameCard.waitlistSuccessSubtitle")}
             </Text>
+
             <Pressable
               style={({ pressed }) => [
                 styles.primaryButton,
@@ -1285,7 +1348,6 @@ export default function GameBookingAction({
       </Modal>
 
       {/* PAYMENT SUBMITTED */}
-      {/* PAYMENT SUBMITTED */}
       <Modal
         visible={paymentSubmittedModalVisible}
         transparent
@@ -1294,21 +1356,17 @@ export default function GameBookingAction({
       >
         <View style={styles.paymentSubmittedBackdrop}>
           <View style={styles.paymentSubmittedCard}>
-            {/* Clock icon */}
             <View style={styles.paymentSubmittedIconCircle}>
               <Ionicons name="time-outline" size={42} color="#00B77A" />
             </View>
 
-            {/* Title */}
             <Text style={styles.paymentSubmittedTitle}>Payment submitted</Text>
 
-            {/* Message */}
             <Text style={styles.paymentSubmittedSubtitle}>
-              Your payment has been submitted.
-              Waiting for organizer confirmation.
+              Your payment has been submitted. Waiting for organizer
+              confirmation.
             </Text>
 
-            {/* Amount */}
             <View style={styles.paymentSubmittedAmountCard}>
               <View style={styles.paymentSubmittedLockCircle}>
                 <Ionicons
@@ -1329,7 +1387,6 @@ export default function GameBookingAction({
               </View>
             </View>
 
-            {/* View game */}
             <Pressable
               style={({ pressed }) => [
                 styles.paymentSubmittedButton,

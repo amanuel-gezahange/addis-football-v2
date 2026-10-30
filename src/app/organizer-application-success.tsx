@@ -18,24 +18,24 @@ export default function OrganizerApplicationSuccessScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        {/* SUCCESS ICON */}
-        <View style={styles.successIcon}>
-          <Ionicons
-            name="checkmark"
-            size={46}
-            color="#00B77A"
-          />
+        {/* HEADER */}
+        <View style={styles.header}>
+          <View style={styles.successIcon}>
+            <Ionicons
+              name="checkmark-circle"
+              size={32}
+              color={COLORS.primary}
+            />
+          </View>
+
+          <Text style={styles.title}>
+            Organizer access activated
+          </Text>
+
+          <Text style={styles.description}>
+            You're ready to create and manage games on Addis Football.
+          </Text>
         </View>
-
-        {/* TITLE */}
-        <Text style={styles.title}>
-          You're now an Organizer!
-        </Text>
-
-        <Text style={styles.description}>
-          Your organizer account is ready. You can start creating games and
-          reaching players on Addis Football.
-        </Text>
 
         {/* STATUS CARD */}
         <View style={styles.card}>
@@ -63,16 +63,16 @@ export default function OrganizerApplicationSuccessScreen() {
         <View style={styles.infoBox}>
           <Ionicons
             name="information-circle-outline"
-            size={21}
+            size={20}
             color={COLORS.primary}
           />
 
           <Text style={styles.infoText}>
-            Players will be able to discover and join the games you publish.
+            Players can now discover and join the games you publish.
           </Text>
         </View>
 
-        {/* BUTTON */}
+        {/* CTA */}
         <Pressable
           onPress={goToOrganizerDashboard}
           style={({ pressed }) => [
@@ -87,7 +87,7 @@ export default function OrganizerApplicationSuccessScreen() {
           <Ionicons
             name="arrow-forward"
             size={20}
-            color="#F7F8FA"
+            color={COLORS.white}
           />
         </Pressable>
       </View>
@@ -112,8 +112,8 @@ function StatusRow({
       <View style={styles.statusIcon}>
         <Ionicons
           name={icon}
-          size={21}
-          color="#00B77A"
+          size={20}
+          color={COLORS.primary}
         />
       </View>
 
@@ -123,8 +123,8 @@ function StatusRow({
 
       <Ionicons
         name="checkmark"
-        size={20}
-        color="#00B77A"
+        size={19}
+        color={COLORS.primary}
       />
     </View>
   );
@@ -133,62 +133,64 @@ function StatusRow({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: "#F7F8FA",
+    backgroundColor: COLORS.background,
   },
 
   container: {
     flex: 1,
     width: "100%",
-    maxWidth: 680,
+    maxWidth: 560,
     alignSelf: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    paddingBottom: 40,
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 28,
+  },
+
+  header: {
+    alignItems: "center",
+    marginBottom: 26,
   },
 
   successIcon: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    alignSelf: "center",
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(73, 211, 154, 0.09)",
-    borderWidth: 1,
-    borderColor: "rgba(73, 211, 154, 0.35)",
-    marginBottom: 25,
+    backgroundColor: "#EAF8F2",
+    marginBottom: 16,
   },
 
   title: {
-    color: "#F7F8FA",
-    fontSize: 28,
-    lineHeight: 35,
+    color: COLORS.text,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "900",
     textAlign: "center",
+    letterSpacing: -0.4,
   },
 
   description: {
-    color: "#66766F",
+    maxWidth: 390,
+    color: COLORS.textSecondary,
     fontSize: 14,
     lineHeight: 21,
-    fontWeight: "600",
+    fontWeight: "500",
     textAlign: "center",
-    marginTop: 10,
-    marginBottom: 28,
-    paddingHorizontal: 8,
+    marginTop: 8,
   },
 
   card: {
-    borderRadius: 18,
-    overflow: "hidden",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.surface,
     borderWidth: 1,
-    borderColor: "#DDE6E2",
+    borderColor: COLORS.border,
+    borderRadius: 20,
     paddingHorizontal: 16,
+    overflow: "hidden",
   },
 
   statusRow: {
-    minHeight: 67,
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
@@ -197,64 +199,67 @@ const styles = StyleSheet.create({
   statusIcon: {
     width: 38,
     height: 38,
-    borderRadius: 12,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(73, 211, 154, 0.08)",
+    backgroundColor: "#EAF8F2",
   },
 
   statusText: {
     flex: 1,
-    color: "#E7EEF2",
+    color: COLORS.text,
     fontSize: 14,
-    fontWeight: "800",
+    lineHeight: 18,
+    fontWeight: "700",
   },
 
   divider: {
     height: StyleSheet.hairlineWidth,
-    backgroundColor: "#D7E2DD",
+    backgroundColor: COLORS.border,
     marginLeft: 50,
   },
 
   infoBox: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 11,
-    marginTop: 16,
-    paddingHorizontal: 15,
-    paddingVertical: 14,
-    borderRadius: 15,
-    backgroundColor: "#0A1C27",
+    gap: 10,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: "#F2FAF7",
     borderWidth: 1,
-    borderColor: "#DDE6E2",
+    borderColor: "#DCEFE7",
   },
 
   infoText: {
     flex: 1,
-    color: "#66766F",
-    fontSize: 12,
-    lineHeight: 18,
-    fontWeight: "600",
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "500",
   },
 
   button: {
-    height: 54,
-    borderRadius: 15,
+    height: 52,
+    borderRadius: 14,
     backgroundColor: COLORS.primary,
-    marginTop: 22,
+    marginTop: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 9,
+    paddingHorizontal: 18,
   },
 
   buttonText: {
-    color: "#F7F8FA",
-    fontSize: 16,
-    fontWeight: "900",
+    color: COLORS.white,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
   },
 
   pressed: {
-    opacity: 0.7,
+    opacity: 0.85,
   },
 });

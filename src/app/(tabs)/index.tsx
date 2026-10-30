@@ -5,6 +5,7 @@ import { Calendar } from "react-native-calendars";
 import * as Location from "expo-location";
 import { Modal } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
+import HorizontalGameCard from "../../components/HorizontalGameCard";
 import {
   ActivityIndicator,
   Alert,
@@ -39,8 +40,8 @@ type Game = {
   skill: string;
   price: number;
   spots_left: number;
+  capacity: number | null;
   status: "available" | "full";
-  image_url: string | null;
   starts_at: string | null;
   ends_at: string | null;
   payment_method: "free" | "venue" | "organizer";
@@ -293,14 +294,18 @@ export default function HomeScreen() {
     longitude,
     time,
     format,
-    skill,
-    price,
-    spots_left,
-    status,
-    image_url,
-    starts_at,
-    ends_at,
-    payment_method
+skill,
+price,
+spots_left,
+capacity,
+status,
+image_url,
+starts_at,
+ends_at,
+payment_method,
+payment_provider,
+payment_phone,
+payment_account_name
   `,
       )
       .neq("status", "cancelled")
@@ -1595,186 +1600,6 @@ const GameCardItem = memo(function GameCardItem({
   );
 });
 
-function HorizontalGameCardComponent({
-  game,
-  onPress,
-  formatDate,
-}: {
-  game: DiscoverGameWithDistance;
-  onPress: () => void;
-  formatDate: (timestamp: string) => string;
-}) {
-  const { width } = useWindowDimensions();
-  const isSmallPhone = width < 375;
-  const isFull = game.status === "full" || game.spotsLeft <= 0;
-  const isFree = game.payment_method === "free" || Number(game.price) === 0;
-
-  const dateLabel = game.starts_at ? formatDate(game.starts_at) : "";
-
-  const startTimeLabel = game.starts_at
-    ? formatAddisTime(game.starts_at)
-    : getStartTimeFromLegacyTime(game.time);
-
-  const endTimeLabel = game.ends_at
-    ? formatAddisTime(game.ends_at)
-    : getEndTimeFromLegacyTime(game.time);
-
-  const durationLabel =
-    game.starts_at && game.ends_at
-      ? formatDuration(game.starts_at, game.ends_at)
-      : "";
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.horizontalGameCard,
-        pressed && styles.horizontalGameCardPressed,
-      ]}
-    >
-      <View
-        style={[
-          styles.horizontalGameArtwork,
-          isSmallPhone && {
-            width: 104,
-            minWidth: 104,
-          },
-        ]}
-      >
-        {game.image_url ? (
-          <Image
-            source={{ uri: game.image_url }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode="cover"
-          />
-        ) : (
-          <>
-            <View style={styles.pitchHalfwayLine} />
-            <View style={styles.pitchCenterCircle} />
-            <Ionicons
-              name="football-outline"
-              size={38}
-              color="rgba(255,255,255,0.16)"
-              style={styles.pitchBall}
-            />
-            <View style={styles.pitchAccent} />
-          </>
-        )}
-      </View>
-
-      <View
-        style={[
-          styles.horizontalGameInfo,
-          isSmallPhone && {
-            paddingHorizontal: 12,
-            paddingVertical: 12,
-          },
-        ]}
-      >
-        <View style={styles.horizontalGameTopRow}>
-          <Text numberOfLines={2} style={styles.horizontalGameTitle}>
-            {game.title}
-          </Text>
-        </View>
-
-        <View style={styles.gameScheduleBlock}>
-          <View style={styles.gameDateRow}>
-            <Ionicons
-              name="calendar-outline"
-              size={15}
-              color={COLORS.textSecondary}
-            />
-            <Text numberOfLines={1} style={styles.gameDateText}>
-              {dateLabel}
-            </Text>
-          </View>
-
-          <View style={styles.gameTimeRow}>
-            <View style={styles.gameTimeRange}>
-              <Ionicons name="time-outline" size={17} color={COLORS.primary} />
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.gameTimeText,
-                  isSmallPhone && {
-                    fontSize: 13,
-                  },
-                ]}
-              >
-                {startTimeLabel}
-                {endTimeLabel ? ` – ${endTimeLabel}` : ""}
-              </Text>
-            </View>
-
-            {!!durationLabel && (
-              <View style={styles.durationBadge}>
-                <Text style={styles.durationBadgeText}>{durationLabel}</Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.horizontalMetaRow}>
-          <Ionicons
-            name="location-outline"
-            size={15}
-            color={COLORS.textSecondary}
-          />
-          <Text numberOfLines={1} style={styles.horizontalMetaText}>
-            {game.area}
-            {game.distanceKm !== null
-              ? ` · ${
-                  game.distanceKm < 1
-                    ? `${Math.round(game.distanceKm * 1000)} m`
-                    : `${game.distanceKm.toFixed(1)} km`
-                }`
-              : ""}
-          </Text>
-        </View>
-
-        <View style={styles.horizontalMetaRow}>
-          <Ionicons
-            name="people-outline"
-            size={15}
-            color={COLORS.textSecondary}
-          />
-          <Text numberOfLines={1} style={styles.horizontalMetaText}>
-            {game.format} · {game.skill}
-          </Text>
-        </View>
-
-        <View style={styles.horizontalGameBottomRow}>
-          <Text style={styles.horizontalPrice}>
-            {isFree ? "FREE" : `${game.price} ETB`}
-          </Text>
-
-          <View style={[styles.spotsBadge, isFull && styles.spotsBadgeFull]}>
-            <Text
-              style={[
-                styles.spotsBadgeText,
-                isFull && styles.spotsBadgeTextFull,
-              ]}
-            >
-              {isFull
-                ? "Full"
-                : `${game.spotsLeft} ${
-                    game.spotsLeft === 1 ? "spot" : "spots"
-                  } left`}
-            </Text>
-          </View>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-const HorizontalGameCard = memo(
-  HorizontalGameCardComponent,
-  (previous, next) =>
-    previous.game === next.game &&
-    previous.onPress === next.onPress &&
-    previous.formatDate === next.formatDate,
-);
 
 function getAddisHour(timestamp: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -2166,6 +1991,7 @@ const styles = StyleSheet.create({
     marginLeft: -8,
     marginRight: 4,
   },
+
   compactDiscoverHeader: {
     marginBottom: 9,
   },
@@ -2265,6 +2091,7 @@ const styles = StyleSheet.create({
     marginHorizontal: -28,
     marginTop: -22,
   },
+
   heroArtwork: {
     position: "absolute",
     left: 0,
@@ -2287,6 +2114,7 @@ const styles = StyleSheet.create({
     height: "62%",
     backgroundColor: "rgba(2, 10, 18, 0.12)",
   },
+
   heroContent: {
     flex: 1,
     minHeight: 250,
@@ -2302,6 +2130,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 14,
   },
+
   sortButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2326,29 +2155,37 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 18,
   },
+
   heroTopBar: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
   },
+
   heroBrand: {
     color: "#F7F8FA",
     fontSize: 22,
     fontWeight: "800",
     letterSpacing: -0.5,
   },
-  heroBrandAccent: { color: COLORS.primary },
+
+  heroBrandAccent: {
+    color: COLORS.primary,
+  },
+
   heroLocation: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     marginTop: 5,
   },
+
   heroLocationText: {
     color: "rgba(255,255,255,0.88)",
     fontSize: 13,
     fontWeight: "600",
   },
+
   headerNotificationButton: {
     width: 42,
     height: 42,
@@ -2357,9 +2194,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: COLORS.primary,
   },
+
   headerNotificationButtonPressed: {
     opacity: 0.82,
   },
+
   heroNotificationButton: {
     width: 42,
     height: 42,
@@ -2370,7 +2209,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.22)",
   },
-  heroMessage: { marginTop: "auto", marginBottom: 10 },
+
+  heroMessage: {
+    marginTop: "auto",
+    marginBottom: 10,
+  },
+
   heroTitle: {
     color: "#F7F8FA",
     fontSize: 30,
@@ -2392,6 +2236,7 @@ const styles = StyleSheet.create({
     lineHeight: 35,
     maxWidth: 380,
   },
+
   heroSubtitle: {
     color: "rgba(255,255,255,0.88)",
     fontSize: 15,
@@ -2400,6 +2245,7 @@ const styles = StyleSheet.create({
     maxWidth: 290,
     marginTop: 10,
   },
+
   heroSearchBox: {
     height: 50,
     borderRadius: 25,
@@ -2409,6 +2255,7 @@ const styles = StyleSheet.create({
     paddingLeft: 17,
     paddingRight: 7,
   },
+
   heroSearchInput: {
     flex: 1,
     minWidth: 0,
@@ -2417,12 +2264,14 @@ const styles = StyleSheet.create({
     color: "#14201B",
     fontSize: 15,
   },
+
   heroSearchDivider: {
     width: StyleSheet.hairlineWidth,
     height: 28,
     backgroundColor: "#DDE6E2",
     marginHorizontal: 4,
   },
+
   heroFilterButton: {
     width: 42,
     height: 42,
@@ -2430,7 +2279,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  heroFilterButtonActive: { backgroundColor: COLORS.primary },
+
+  heroFilterButtonActive: {
+    backgroundColor: COLORS.primary,
+  },
 
   searchModeHeader: {
     marginBottom: 18,
@@ -2645,7 +2497,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F8FA",
     borderWidth: 1,
     borderColor: "#DDE6E2",
-
     boxShadow: "0 1px 3px rgba(0, 0, 0, 0.06)",
     elevation: 1,
   },
@@ -2678,7 +2529,6 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     paddingRight: 6,
     backgroundColor: "#F7F8FA",
-
     boxShadow: "0 2px 4px rgba(0, 0, 0, 0.05)",
     elevation: 1,
   },
@@ -2755,11 +2605,19 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
 
+  dateDayActive: {
+    color: "#F8FAF9",
+  },
+
   dateNumber: {
     color: COLORS.text,
     fontWeight: "800",
     fontSize: 18,
     marginTop: 1,
+  },
+
+  dateNumberActive: {
+    color: "#F8FAF9",
   },
 
   dateTextActive: {
@@ -3029,7 +2887,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#DDE6E2",
     padding: 18,
-
     boxShadow: "0 8px 20px rgba(0, 0, 0, 0.12)",
     elevation: 8,
   },
@@ -3059,14 +2916,14 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#F7F8FA",
     borderWidth: 1,
     borderColor: "#DDE6E2",
   },
 
   horizontalGameCard: {
     width: "100%",
-    minHeight: 178,
+    minHeight: 214,
     flexDirection: "row",
     backgroundColor: COLORS.surface,
     borderRadius: 20,
@@ -3084,11 +2941,16 @@ const styles = StyleSheet.create({
   },
 
   horizontalGameArtwork: {
-    width: "31%",
-    minWidth: 112,
+    width: "39%",
+    minWidth: 126,
     backgroundColor: "#123E3F",
     overflow: "hidden",
     position: "relative",
+  },
+
+  horizontalGameArtworkSmall: {
+    width: "38%",
+    minWidth: 118,
   },
 
   pitchHalfwayLine: {
@@ -3114,15 +2976,15 @@ const styles = StyleSheet.create({
 
   pitchBall: {
     position: "absolute",
-    left: 14,
+    left: 18,
     top: 20,
   },
 
   pitchAccent: {
     position: "absolute",
-    left: 14,
+    left: 18,
     bottom: 16,
-    width: 34,
+    width: 38,
     height: 4,
     borderRadius: 3,
     backgroundColor: COLORS.primary,
@@ -3131,45 +2993,58 @@ const styles = StyleSheet.create({
   horizontalGameInfo: {
     flex: 1,
     minWidth: 0,
-    paddingTop: 15,
-    paddingBottom: 14,
-    paddingLeft: 16,
-    paddingRight: 14,
+    paddingTop: 13,
+    paddingBottom: 12,
+    paddingLeft: 13,
+    paddingRight: 12,
+  },
+
+  horizontalGameInfoSmall: {
+    paddingTop: 11,
+    paddingBottom: 10,
+    paddingLeft: 10,
+    paddingRight: 9,
   },
 
   horizontalGameTopRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
+    alignItems: "center",
+    gap: 5,
     marginBottom: 7,
   },
 
   horizontalGameTitle: {
     flex: 1,
     color: COLORS.text,
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: "800",
     letterSpacing: -0.3,
   },
 
-  gameScheduleBlock: {
-    marginTop: 2,
-    marginBottom: 2,
-  },
-
-  gameDateRow: {
+  gameDatePill: {
+    alignSelf: "flex-start",
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 5,
+    minHeight: 24,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 7,
+    backgroundColor: "#EAF8F2",
+    marginBottom: 8,
   },
 
-  gameDateText: {
-    flex: 1,
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "600",
+  gameDatePillText: {
+    color: "#176B50",
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+  },
+
+  gameMetaStack: {
+    gap: 6,
+    marginBottom: 8,
   },
 
   gameTimeRow: {
@@ -3177,92 +3052,89 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 6,
-    marginTop: 4,
     minWidth: 0,
   },
 
-  gameTimeRange: {
-    flex: 1,
-    minWidth: 0,
+  gameMetaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 7,
+    minWidth: 0,
   },
 
-  gameTimeText: {
-    color: COLORS.text,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "800",
-    letterSpacing: -0.25,
+  gameMetaRowText: {
     flexShrink: 1,
-  },
-
-  durationBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: COLORS.surfaceAlt,
-    flexShrink: 0,
-  },
-
-  durationBadgeText: {
-    color: COLORS.textSecondary,
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: "800",
-  },
-
-  horizontalMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 4,
-  },
-
-  horizontalMetaText: {
-    flex: 1,
-    color: COLORS.textSecondary,
-    fontSize: 13,
-    lineHeight: 17,
+    color: COLORS.text,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "500",
   },
 
-  horizontalGameBottomRow: {
-    marginTop: "auto",
-    paddingTop: 10,
+  // Duration pill
+  gameDurationPill: {
+    flexShrink: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
+    backgroundColor: COLORS.surfaceAlt,
+  },
+
+  gameDurationText: {
+    color: COLORS.textSecondary,
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: "700",
+  },
+
+  // Players on left / price on right
+  gamePlayersPriceRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
+    minWidth: 0,
   },
 
-  horizontalPrice: {
-    color: COLORS.text,
-    fontSize: 17,
-    fontWeight: "900",
-    letterSpacing: -0.2,
+  // Divider + Join button
+  gameCardBottomRow: {
+    marginTop: "auto",
+    paddingTop: 9,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.border,
   },
 
-  spotsBadge: {
-    backgroundColor: COLORS.primarySoft,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
+  joinGameButton: {
+    width: "100%",
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: COLORS.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
   },
 
-  spotsBadgeFull: {
-    backgroundColor: "#FDECEA",
+  joinGameButtonFull: {
+    backgroundColor: COLORS.surfaceAlt,
   },
 
-  spotsBadgeText: {
-    color: COLORS.primaryPressed,
-    fontSize: 11,
+  joinGameButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: "800",
   },
 
-  spotsBadgeTextFull: {
-    color: COLORS.danger,
+  joinGameButtonTextFull: {
+    color: COLORS.textSecondary,
+  },
+
+  horizontalPrice: {
+    flexShrink: 0,
+    color: COLORS.text,
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "700",
+    letterSpacing: -0.15,
   },
 
   horizontalChevron: {
@@ -3275,6 +3147,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
   sortControls: {
     flexDirection: "row",
     alignItems: "center",

@@ -27,6 +27,7 @@ import { COLORS } from "../../constants/colors";
 import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { supabase } from "../../lib/supabase";
+import HorizontalGameCard from "../../components/HorizontalGameCard";
 
 type BookingStatus =
   | "pending_payment"
@@ -63,6 +64,8 @@ type Game = {
   format: string;
   skill: string;
   price: number;
+  spots_left: number;
+  capacity: number | null;
   image_url: string | null;
   starts_at: string | null;
   ends_at: string | null;
@@ -260,6 +263,7 @@ const BookingCard = memo(function BookingCard({
   if (!game) {
     return null;
   }
+
   const bookingQuantity = Math.max(Number(booking.quantity ?? 1), 1);
 
   const bookingTotal =
@@ -277,10 +281,26 @@ const BookingCard = memo(function BookingCard({
     booking.status === "pending_payment" &&
     booking.payment_status === "pending";
 
-  const paymentSubmitted =
-    organizerPayment &&
-    booking.status === "pending_payment" &&
-    booking.payment_status === "submitted";
+  const sharedCardGame = {
+    id: game.id,
+    title: game.title,
+    area: game.area,
+    time: game.time,
+    price: bookingTotal,
+    spotsLeft: game.spots_left,
+    capacity: game.capacity,
+    status:
+      game.status === "full" || game.spots_left <= 0
+        ? ("full" as const)
+        : ("available" as const),
+    starts_at: game.starts_at,
+    ends_at: game.ends_at,
+    image_url: game.image_url,
+    payment_method: game.payment_method,
+    payment_provider: game.payment_provider,
+    payment_phone: game.payment_phone,
+    payment_account_name: game.payment_account_name,
+  };
 
   function openGame() {
     if (!cancelled) {
@@ -288,139 +308,59 @@ const BookingCard = memo(function BookingCard({
     }
   }
 
-  return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.card,
-        cancelled && styles.cardCancelled,
-        pressed && !cancelled && styles.cardPressed,
+  const bookingStatusContent = (
+    <View
+      style={[
+        styles.bookingCardStatus,
+        status.tone === "warning" && styles.bookingCardStatusWarning,
+        status.tone === "danger" && styles.bookingCardStatusDanger,
+        status.tone === "neutral" && styles.bookingCardStatusNeutral,
       ]}
-      onPress={openGame}
-      disabled={cancelled}
-      accessibilityRole="button"
-      accessibilityLabel={game.title}
     >
-      <View style={styles.cardMainRow}>
-        <View style={styles.thumbnail}>
-          {game.image_url ? (
-            <Image
-              source={{ uri: game.image_url }}
-              style={[
-                styles.thumbnailImage,
-                cancelled && styles.cancelledImage,
-              ]}
-              resizeMode="cover"
-            />
-          ) : (
-            <View
-              style={[
-                styles.thumbnailFallback,
-                cancelled && styles.cancelledImage,
-              ]}
-            >
-              <View style={styles.pitchHalfwayLine} />
-              <View style={styles.pitchCenterCircle} />
+      <Ionicons
+        name={status.icon}
+        size={16}
+        color={
+          status.tone === "warning"
+            ? "#9A6700"
+            : status.tone === "danger"
+              ? COLORS.danger
+              : status.tone === "neutral"
+                ? COLORS.textSecondary
+                : COLORS.white
+        }
+      />
 
-              <Ionicons
-                name="football-outline"
-                size={38}
-                color="rgba(255,255,255,0.16)"
-                style={styles.pitchBall}
-              />
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.bookingCardStatusText,
+          status.tone === "warning" && styles.bookingCardStatusTextWarning,
+          status.tone === "danger" && styles.bookingCardStatusTextDanger,
+          status.tone === "neutral" && styles.bookingCardStatusTextNeutral,
+        ]}
+      >
+        {status.label}
+      </Text>
+    </View>
+  );
 
-              <View style={styles.pitchAccent} />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.cardContent}>
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.cardTitle} numberOfLines={1}>
-              {game.title}
-            </Text>
-
-            {!cancelled && (
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={COLORS.textMuted}
-              />
-            )}
-          </View>
-
-          <View
-            style={[
-              styles.statusPill,
-              status.tone === "warning" && styles.statusPillWarning,
-              status.tone === "danger" && styles.statusPillDanger,
-              status.tone === "neutral" && styles.statusPillNeutral,
-            ]}
-          >
-            <Ionicons
-              name={status.icon}
-              size={14}
-              color={
-                status.tone === "warning"
-                  ? "#9A6700"
-                  : status.tone === "danger"
-                    ? COLORS.danger
-                    : status.tone === "neutral"
-                      ? COLORS.textSecondary
-                      : COLORS.white
-              }
-            />
-
-            <Text
-              style={[
-                styles.statusPillText,
-                status.tone === "warning" && styles.statusPillTextWarning,
-                status.tone === "danger" && styles.statusPillTextDanger,
-                status.tone === "neutral" && styles.statusPillTextNeutral,
-              ]}
-              numberOfLines={1}
-            >
-              {status.label}
-            </Text>
-          </View>
-
-          <View style={styles.metaRow}>
-            <Ionicons
-              name="calendar-outline"
-              size={15}
-              color={COLORS.textSecondary}
-            />
-
-            <Text style={styles.metaText} numberOfLines={1}>
-              {game.starts_at
-                ? `${formatCompactAddisDate(
-                    game.starts_at,
-                    dateLocale,
-                  )} · ${formatAddisStartTime(game.starts_at, dateLocale)}`
-                : game.time}
-            </Text>
-          </View>
-
-          <View style={styles.metaRow}>
-            <Ionicons
-              name="location-outline"
-              size={16}
-              color={COLORS.textSecondary}
-            />
-
-            <Text style={styles.metaText} numberOfLines={1}>
-              {game.area}
-            </Text>
-          </View>
-
-          <Text style={styles.priceText}>
-            {game.payment_method === "free"
-              ? t("bookings.free")
-              : bookingQuantity > 1
-                ? `${bookingTotal} ETB · ${bookingQuantity} spots`
-                : `${bookingTotal} ETB`}
-          </Text>
-        </View>
-      </View>
+  return (
+    <View
+      style={[
+        styles.bookingCardWrapper,
+        cancelled && styles.bookingCardWrapperCancelled,
+      ]}
+    >
+      <HorizontalGameCard
+        game={sharedCardGame}
+        onPress={openGame}
+        formatDate={(timestamp) =>
+          formatCompactAddisDate(timestamp, dateLocale)
+        }
+        mode="booking"
+        bottomContent={bookingStatusContent}
+      />
 
       {paymentRequired && (
         <View style={styles.paymentBox}>
@@ -475,8 +415,7 @@ const BookingCard = memo(function BookingCard({
                   styles.secondaryAction,
                   pressed && styles.actionPressed,
                 ]}
-                onPress={(event) => {
-                  event.stopPropagation();
+                onPress={() => {
                   onCallOrganizer(game.payment_phone);
                 }}
               >
@@ -497,8 +436,7 @@ const BookingCard = memo(function BookingCard({
                 submitting && styles.actionDisabled,
               ]}
               disabled={submitting}
-              onPress={(event) => {
-                event.stopPropagation();
+              onPress={() => {
                 onSubmitPayment(booking);
               }}
             >
@@ -541,7 +479,7 @@ const BookingCard = memo(function BookingCard({
           <Text style={styles.refundedText}>Refund completed</Text>
         </View>
       )}
-    </Pressable>
+    </View>
   );
 });
 
@@ -655,6 +593,7 @@ export default function BookingsScreen() {
         } = await supabase.auth.getSession();
 
         const user = session?.user;
+        console.log("----------------->CURRENT BOOKING USER:", user?.id);
 
         if (!user) {
           bookingsCache = [];
@@ -683,6 +622,8 @@ export default function BookingsScreen() {
               format,
               skill,
               price,
+              spots_left,
+              capacity,
               image_url,
               starts_at,
               ends_at,
@@ -2054,6 +1995,56 @@ function EthiopianCalendar({
    ============================================================ */
 
 const styles = StyleSheet.create({
+  bookingCardWrapper: {
+    width: "100%",
+  },
+
+  bookingCardWrapperCancelled: {
+    opacity: 0.62,
+  },
+
+  bookingCardStatus: {
+    width: "100%",
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: COLORS.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingHorizontal: 10,
+  },
+
+  bookingCardStatusWarning: {
+    backgroundColor: "#FFF4D6",
+  },
+
+  bookingCardStatusDanger: {
+    backgroundColor: "#FDECEC",
+  },
+
+  bookingCardStatusNeutral: {
+    backgroundColor: COLORS.surfaceAlt,
+  },
+
+  bookingCardStatusText: {
+    color: COLORS.white,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
+  },
+
+  bookingCardStatusTextWarning: {
+    color: "#9A6700",
+  },
+
+  bookingCardStatusTextDanger: {
+    color: COLORS.danger,
+  },
+
+  bookingCardStatusTextNeutral: {
+    color: COLORS.textSecondary,
+  },
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
@@ -2271,14 +2262,15 @@ const styles = StyleSheet.create({
   cardMainRow: {
     flexDirection: "row",
     alignItems: "stretch",
-    minHeight: 156,
+    minHeight: 190,
   },
+
   thumbnail: {
-    width: "31%",
-    minWidth: 112,
+    width: "38%",
+    maxWidth: 150,
     alignSelf: "stretch",
     overflow: "hidden",
-    backgroundColor: "#123E3F",
+    backgroundColor: "#00524F",
     position: "relative",
   },
 
@@ -2357,7 +2349,8 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     paddingHorizontal: 14,
-    paddingVertical: 13,
+    paddingVertical: 16,
+    justifyContent: "center",
   },
 
   cardTitleRow: {

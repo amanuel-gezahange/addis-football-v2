@@ -241,14 +241,8 @@ function GameCard({ game, initialIsFavorite = false }: Props) {
         accessibilityRole="button"
         accessibilityLabel={
           isFavorite
-            ? t("gameCard.removeFromFavorites").replace(
-                "{game}",
-                game.title,
-              )
-            : t("gameCard.saveToFavorites").replace(
-                "{game}",
-                game.title,
-              )
+            ? t("gameCard.removeFromFavorites").replace("{game}", game.title)
+            : t("gameCard.saveToFavorites").replace("{game}", game.title)
         }
       >
         <Ionicons
@@ -290,11 +284,7 @@ function GameCard({ game, initialIsFavorite = false }: Props) {
 
         {/* LOCATION */}
         <View style={styles.metaRow}>
-          <Ionicons
-            name="location"
-            size={15}
-            color="#33433C"
-          />
+          <Ionicons name="location" size={15} color="#33433C" />
 
           <Text style={styles.metaText} numberOfLines={2}>
             {location}
@@ -303,11 +293,7 @@ function GameCard({ game, initialIsFavorite = false }: Props) {
 
         {/* TIME */}
         <View style={styles.metaRow}>
-          <Ionicons
-            name="time-outline"
-            size={15}
-            color="#33433C"
-          />
+          <Ionicons name="time-outline" size={15} color="#33433C" />
 
           <Text style={styles.metaText} numberOfLines={2}>
             {game.time}
@@ -316,10 +302,7 @@ function GameCard({ game, initialIsFavorite = false }: Props) {
 
         {/* BOTTOM */}
         <View
-          style={[
-            styles.bottomRow,
-            isSmallScreen && styles.bottomRowSmall,
-          ]}
+          style={[styles.bottomRow, isSmallScreen && styles.bottomRowSmall]}
         >
           <View style={styles.spotsRow}>
             <Ionicons
@@ -329,10 +312,7 @@ function GameCard({ game, initialIsFavorite = false }: Props) {
             />
 
             <Text
-              style={[
-                styles.spotsText,
-                isFull && styles.fullText,
-              ]}
+              style={[styles.spotsText, isFull && styles.fullText]}
               numberOfLines={2}
             >
               {isFull
@@ -342,23 +322,14 @@ function GameCard({ game, initialIsFavorite = false }: Props) {
           </View>
 
           <View
-            style={[
-              styles.priceBadge,
-              price === 0 && styles.freePriceBadge,
-            ]}
+            style={[styles.priceBadge, price === 0 && styles.freePriceBadge]}
           >
-            <Text
-              style={styles.priceText}
-              numberOfLines={1}
-            >
-              {price === 0
-                ? t("gameCard.free")
-                : `${price} ETB`}
+            <Text style={styles.priceText} numberOfLines={1}>
+              {price === 0 ? t("gameCard.free") : `${price} ETB`}
             </Text>
           </View>
         </View>
 
-        {/* LOW SPOTS */}
         {isLowSpots && (
           <View style={styles.urgencyBadge}>
             <Text style={styles.urgencyText}>
@@ -367,6 +338,20 @@ function GameCard({ game, initialIsFavorite = false }: Props) {
           </View>
         )}
       </Pressable>
+
+      {!isFull && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.joinButton,
+            pressed && styles.joinButtonPressed,
+          ]}
+          onPress={openGameDetails}
+          accessibilityRole="button"
+          accessibilityLabel={`Join ${game.title}`}
+        >
+          <Text style={styles.joinButtonText}>Join Game</Text>
+        </Pressable>
+      )}
     </Animated.View>
   );
 }
@@ -546,6 +531,28 @@ const styles = StyleSheet.create({
   urgencyText: {
     color: "#D92D3A",
     fontSize: 11,
+    fontWeight: "800",
+  },
+  joinButton: {
+    alignSelf: "center",
+    minWidth: 220,
+    height: 48,
+    marginBottom: 16,
+    paddingHorizontal: 28,
+    borderRadius: 16,
+    backgroundColor: "#00B77A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  joinButtonPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+
+  joinButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
     fontWeight: "800",
   },
 
