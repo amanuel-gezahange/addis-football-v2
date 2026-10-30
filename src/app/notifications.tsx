@@ -1,6 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -46,7 +53,9 @@ type NotificationCardProps = {
   onPress: (notification: Notification) => void;
 };
 
-function getNotificationIcon(type: string): keyof typeof Ionicons.glyphMap {
+function getNotificationIcon(
+  type: string,
+): keyof typeof Ionicons.glyphMap {
   switch (type) {
     case "game_cancelled":
       return "close-circle-outline";
@@ -109,15 +118,23 @@ const NotificationCard = memo(function NotificationCard({
 
       <View style={styles.notificationContent}>
         <View style={styles.titleRow}>
-          <Text style={styles.notificationTitle}>{title}</Text>
+          <Text style={styles.notificationTitle}>
+            {title}
+          </Text>
 
-          {!notification.is_read && <View style={styles.unreadDot} />}
+          {!notification.is_read && (
+            <View style={styles.unreadDot} />
+          )}
         </View>
 
-        <Text style={styles.notificationMessage}>{message}</Text>
+        <Text style={styles.notificationMessage}>
+          {message}
+        </Text>
 
         <View style={styles.notificationFooter}>
-          <Text style={styles.notificationTime}>{time}</Text>
+          <Text style={styles.notificationTime}>
+            {time}
+          </Text>
 
           {notification.game_id && (
             <Ionicons
@@ -133,7 +150,10 @@ const NotificationCard = memo(function NotificationCard({
 });
 
 export default function NotificationsScreen() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<
+    Notification[]
+  >([]);
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -156,6 +176,7 @@ export default function NotificationsScreen() {
       mountedRef.current = false;
     };
   }, []);
+
   useEffect(() => {
     const userId = currentUserIdRef.current;
 
@@ -204,195 +225,237 @@ export default function NotificationsScreen() {
     [],
   );
 
-  const loadInitialNotifications = useCallback(async () => {
-    let hasCache = false;
+  const loadInitialNotifications = useCallback(
+    async () => {
+      let hasCache = false;
 
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        currentUserIdRef.current = null;
-
-        if (mountedRef.current) {
-          setNotifications([]);
-          setLoading(false);
-          setHasMore(false);
-          hasMoreRef.current = false;
-        }
-
-        return;
-      }
-
-      currentUserIdRef.current = user.id;
-      hasCache = hasNotificationCache(user.id);
-
-      if (hasCache) {
-        const cached = getCachedNotifications(user.id) as Notification[];
-
-        if (mountedRef.current) {
-          setNotifications(cached);
-          setLoading(false);
-        }
-      } else if (mountedRef.current) {
-        setLoading(true);
-      }
-
-      const data = await fetchNotifications(
-        user.id,
-        0,
-        NOTIFICATION_PAGE_SIZE,
-      );
-
-      if (!mountedRef.current) {
-        return;
-      }
-
-      setNotifications(data);
-      setCachedNotifications(user.id, data);
-
-      const more = data.length === NOTIFICATION_PAGE_SIZE;
-
-      setHasMore(more);
-      hasMoreRef.current = more;
-    } catch (error) {
-      console.log(
-        "Load notifications error:",
-        error instanceof Error ? error.message : "Unknown error",
-      );
-    } finally {
-      if (mountedRef.current && !hasCache) {
-        setLoading(false);
-      }
-    }
-  }, [fetchNotifications]);
-
-  const refreshNotifications = useCallback(async () => {
-    try {
-      setRefreshing(true);
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        currentUserIdRef.current = null;
-        setNotifications([]);
-        setHasMore(false);
-        hasMoreRef.current = false;
-        return;
-      }
-
-      currentUserIdRef.current = user.id;
-
-      const data = await fetchNotifications(
-        user.id,
-        0,
-        NOTIFICATION_PAGE_SIZE,
-      );
-
-      if (!mountedRef.current) {
-        return;
-      }
-
-      setNotifications(data);
-
-      const more = data.length === NOTIFICATION_PAGE_SIZE;
-
-      setHasMore(more);
-      hasMoreRef.current = more;
-    } catch (error) {
-      console.log(
-        "Refresh notifications error:",
-        error instanceof Error ? error.message : "Unknown error",
-      );
-    } finally {
-      if (mountedRef.current) {
-        setRefreshing(false);
-      }
-    }
-  }, [fetchNotifications]);
-
-  const loadMoreNotifications = useCallback(async () => {
-    if (loadingMoreRef.current || !hasMoreRef.current) {
-      return;
-    }
-
-    loadingMoreRef.current = true;
-    setLoadingMore(true);
-
-    try {
-      const offset = notifications.length;
-
-      let userId = currentUserIdRef.current;
-
-      if (!userId) {
+      try {
         const {
           data: { user },
         } = await supabase.auth.getUser();
 
-        userId = user?.id ?? null;
-        currentUserIdRef.current = userId;
-      }
+        if (!user) {
+          currentUserIdRef.current = null;
 
-      if (!userId) {
+          if (mountedRef.current) {
+            setNotifications([]);
+            setLoading(false);
+            setHasMore(false);
+            hasMoreRef.current = false;
+          }
+
+          return;
+        }
+
+        currentUserIdRef.current = user.id;
+        hasCache = hasNotificationCache(user.id);
+
+        if (hasCache) {
+          const cached =
+            getCachedNotifications(
+              user.id,
+            ) as Notification[];
+
+          if (mountedRef.current) {
+            setNotifications(cached);
+            setLoading(false);
+          }
+        } else if (mountedRef.current) {
+          setLoading(true);
+        }
+
+        const data = await fetchNotifications(
+          user.id,
+          0,
+          NOTIFICATION_PAGE_SIZE,
+        );
+
+        if (!mountedRef.current) {
+          return;
+        }
+
+        setNotifications(data);
+        setCachedNotifications(user.id, data);
+
+        const more =
+          data.length === NOTIFICATION_PAGE_SIZE;
+
+        setHasMore(more);
+        hasMoreRef.current = more;
+      } catch (error) {
+        console.log(
+          "Load notifications error:",
+          error instanceof Error
+            ? error.message
+            : "Unknown error",
+        );
+      } finally {
+        if (mountedRef.current && !hasCache) {
+          setLoading(false);
+        }
+      }
+    },
+    [fetchNotifications],
+  );
+
+  const refreshNotifications = useCallback(
+    async () => {
+      try {
+        setRefreshing(true);
+
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+
+        if (!user) {
+          currentUserIdRef.current = null;
+          setNotifications([]);
+          setHasMore(false);
+          hasMoreRef.current = false;
+          return;
+        }
+
+        currentUserIdRef.current = user.id;
+
+        const data = await fetchNotifications(
+          user.id,
+          0,
+          NOTIFICATION_PAGE_SIZE,
+        );
+
+        if (!mountedRef.current) {
+          return;
+        }
+
+        setNotifications(data);
+
+        const more =
+          data.length === NOTIFICATION_PAGE_SIZE;
+
+        setHasMore(more);
+        hasMoreRef.current = more;
+      } catch (error) {
+        console.log(
+          "Refresh notifications error:",
+          error instanceof Error
+            ? error.message
+            : "Unknown error",
+        );
+      } finally {
+        if (mountedRef.current) {
+          setRefreshing(false);
+        }
+      }
+    },
+    [fetchNotifications],
+  );
+
+  const loadMoreNotifications = useCallback(
+    async () => {
+      if (
+        loadingMoreRef.current ||
+        !hasMoreRef.current
+      ) {
         return;
       }
 
-      const data = await fetchNotifications(
-        userId,
-        offset,
-        NOTIFICATION_PAGE_SIZE,
-      );
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
 
-      if (!mountedRef.current) {
-        return;
-      }
+      try {
+        const offset = notifications.length;
 
-      setNotifications((current) => {
-        const existingIds = new Set(
-          current.map((notification) => notification.id),
+        let userId =
+          currentUserIdRef.current;
+
+        if (!userId) {
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
+          userId = user?.id ?? null;
+          currentUserIdRef.current = userId;
+        }
+
+        if (!userId) {
+          return;
+        }
+
+        const data = await fetchNotifications(
+          userId,
+          offset,
+          NOTIFICATION_PAGE_SIZE,
         );
 
-        const newNotifications = data.filter(
-          (notification) => !existingIds.has(notification.id),
+        if (!mountedRef.current) {
+          return;
+        }
+
+        setNotifications((current) => {
+          const existingIds = new Set(
+            current.map(
+              (notification) => notification.id,
+            ),
+          );
+
+          const newNotifications = data.filter(
+            (notification) =>
+              !existingIds.has(notification.id),
+          );
+
+          return [
+            ...current,
+            ...newNotifications,
+          ];
+        });
+
+        const more =
+          data.length === NOTIFICATION_PAGE_SIZE;
+
+        setHasMore(more);
+        hasMoreRef.current = more;
+      } catch (error) {
+        console.log(
+          "Load more notifications error:",
+          error instanceof Error
+            ? error.message
+            : "Unknown error",
         );
+      } finally {
+        loadingMoreRef.current = false;
 
-        return [...current, ...newNotifications];
-      });
-
-      const more = data.length === NOTIFICATION_PAGE_SIZE;
-
-      setHasMore(more);
-      hasMoreRef.current = more;
-    } catch (error) {
-      console.log(
-        "Load more notifications error:",
-        error instanceof Error ? error.message : "Unknown error",
-      );
-    } finally {
-      loadingMoreRef.current = false;
-
-      if (mountedRef.current) {
-        setLoadingMore(false);
+        if (mountedRef.current) {
+          setLoadingMore(false);
+        }
       }
-    }
-  }, [fetchNotifications, notifications.length]);
+    },
+    [
+      fetchNotifications,
+      notifications.length,
+    ],
+  );
 
   const formatTime = useCallback(
     (createdAt: string) => {
       const date = new Date(createdAt);
-
       const now = new Date();
 
-      const diffMs = Math.max(0, now.getTime() - date.getTime());
+      const diffMs = Math.max(
+        0,
+        now.getTime() - date.getTime(),
+      );
 
-      const diffMinutes = Math.floor(diffMs / 60000);
+      const diffMinutes = Math.floor(
+        diffMs / 60000,
+      );
 
-      const diffHours = Math.floor(diffMs / 3600000);
+      const diffHours = Math.floor(
+        diffMs / 3600000,
+      );
 
-      const diffDays = Math.floor(diffMs / 86400000);
+      const diffDays = Math.floor(
+        diffMs / 86400000,
+      );
 
       if (diffMinutes < 1) {
         return "Now";
@@ -415,7 +478,11 @@ export default function NotificationsScreen() {
       }
 
       const locale =
-        language === "am" ? "am-ET" : language === "om" ? "om-ET" : "en-US";
+        language === "am"
+          ? "am-ET"
+          : language === "om"
+            ? "om-ET"
+            : "en-US";
 
       try {
         return new Intl.DateTimeFormat(locale, {
@@ -423,10 +490,13 @@ export default function NotificationsScreen() {
           day: "numeric",
         }).format(date);
       } catch {
-        return new Intl.DateTimeFormat("en-US", {
-          month: "short",
-          day: "numeric",
-        }).format(date);
+        return new Intl.DateTimeFormat(
+          "en-US",
+          {
+            month: "short",
+            day: "numeric",
+          },
+        ).format(date);
       }
     },
     [language],
@@ -454,7 +524,10 @@ export default function NotificationsScreen() {
           .eq("id", notification.id);
 
         if (error) {
-          console.log("Mark notification read error:", error.message);
+          console.log(
+            "Mark notification read error:",
+            error.message,
+          );
 
           if (mountedRef.current) {
             setNotifications((current) =>
@@ -472,7 +545,9 @@ export default function NotificationsScreen() {
       }
 
       if (notification.game_id) {
-        router.push(`/game/${notification.game_id}`);
+        router.push(
+          `/game/${notification.game_id}`,
+        );
       }
     },
     [],
@@ -481,74 +556,90 @@ export default function NotificationsScreen() {
   const unreadCount = useMemo(
     () =>
       notifications.reduce(
-        (count, notification) => (notification.is_read ? count : count + 1),
+        (count, notification) =>
+          notification.is_read
+            ? count
+            : count + 1,
         0,
       ),
     [notifications],
   );
 
-  const markAllAsRead = useCallback(async () => {
-    if (unreadCount === 0) {
-      return;
-    }
+  const markAllAsRead = useCallback(
+    async () => {
+      if (unreadCount === 0) {
+        return;
+      }
 
-    const unreadIds = notifications
-      .filter((notification) => !notification.is_read)
-      .map((notification) => notification.id);
+      const previousNotifications =
+        notifications;
 
-    if (unreadIds.length === 0) {
-      return;
-    }
+      // Update all currently visible notifications immediately.
+      setNotifications((current) =>
+        current.map((notification) => ({
+          ...notification,
+          is_read: true,
+        })),
+      );
 
-    setNotifications((current) =>
-      current.map((notification) =>
-        unreadIds.includes(notification.id)
-          ? {
-              ...notification,
-              is_read: true,
-            }
-          : notification,
-      ),
-    );
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      if (!user) {
+        setNotifications(
+          previousNotifications,
+        );
+        return;
+      }
 
-    if (!user) {
-      await refreshNotifications();
-      return;
-    }
+      // Mark ALL unread notifications for this user as read,
+      // including notifications that have not been paginated
+      // into the app yet.
+      const { error } = await supabase
+        .from("notifications")
+        .update({
+          is_read: true,
+        })
+        .eq("user_id", user.id)
+        .eq("is_read", false);
 
-    const { error } = await supabase
-      .from("notifications")
-      .update({
-        is_read: true,
-      })
-      .eq("user_id", user.id)
-      .in("id", unreadIds);
+      if (error) {
+        console.log(
+          "Mark all notifications read error:",
+          error.message,
+        );
 
-    if (error) {
-      console.log("Mark all notifications read error:", error.message);
-
-      await refreshNotifications();
-    }
-  }, [notifications, unreadCount, refreshNotifications]);
+        setNotifications(
+          previousNotifications,
+        );
+      }
+    },
+    [notifications, unreadCount],
+  );
 
   const getNotificationTitle = useCallback(
     (notification: Notification) => {
       switch (notification.type) {
         case "game_updated":
-          return t("notifications.gameUpdated");
+          return t(
+            "notifications.gameUpdated",
+          );
 
         case "booking_confirmed":
-          return t("notifications.bookingConfirmed");
+          return t(
+            "notifications.bookingConfirmed",
+          );
 
         case "game_cancelled":
-          return t("notifications.gameCancelled");
+          return t(
+            "notifications.gameCancelled",
+          );
 
         case "game_reminder":
-          return t("notifications.gameReminder");
+          return t(
+            "notifications.gameReminder",
+          );
 
         case "waitlist_spot_available":
           return "Spot available";
@@ -571,7 +662,8 @@ export default function NotificationsScreen() {
 
   const getNotificationMessage = useCallback(
     (notification: Notification) => {
-      const gameTitle = notification.games?.title;
+      const gameTitle =
+        notification.games?.title;
 
       if (!gameTitle) {
         return notification.message;
@@ -581,19 +673,27 @@ export default function NotificationsScreen() {
 
       switch (notification.type) {
         case "game_updated":
-          message = t("notifications.gameUpdatedMessage");
+          message = t(
+            "notifications.gameUpdatedMessage",
+          );
           break;
 
         case "booking_confirmed":
-          message = t("notifications.bookingConfirmedMessage");
+          message = t(
+            "notifications.bookingConfirmedMessage",
+          );
           break;
 
         case "game_cancelled":
-          message = t("notifications.gameCancelledMessage");
+          message = t(
+            "notifications.gameCancelledMessage",
+          );
           break;
 
         case "game_reminder":
-          message = t("notifications.gameReminderMessage");
+          message = t(
+            "notifications.gameReminderMessage",
+          );
           break;
 
         case "waitlist_spot_available":
@@ -612,20 +712,35 @@ export default function NotificationsScreen() {
           return notification.message;
       }
 
-      return message.replace("{game}", gameTitle);
+      return message.replace(
+        "{game}",
+        gameTitle,
+      );
     },
     [t],
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: Notification }) => {
+    ({
+      item,
+    }: {
+      item: Notification;
+    }) => {
       return (
         <NotificationCard
           notification={item}
-          title={getNotificationTitle(item)}
-          message={getNotificationMessage(item)}
-          time={formatTime(item.created_at)}
-          onPress={handleNotificationPress}
+          title={getNotificationTitle(
+            item,
+          )}
+          message={getNotificationMessage(
+            item,
+          )}
+          time={formatTime(
+            item.created_at,
+          )}
+          onPress={
+            handleNotificationPress
+          }
         />
       );
     },
@@ -637,7 +752,11 @@ export default function NotificationsScreen() {
     ],
   );
 
-  const keyExtractor = useCallback((item: Notification) => String(item.id), []);
+  const keyExtractor = useCallback(
+    (item: Notification) =>
+      String(item.id),
+    [],
+  );
 
   const renderFooter = useCallback(() => {
     if (!loadingMore) {
@@ -646,13 +765,18 @@ export default function NotificationsScreen() {
 
     return (
       <View style={styles.footerLoader}>
-        <ActivityIndicator size="small" color={COLORS.primary} />
+        <ActivityIndicator
+          size="small"
+          color={COLORS.primary}
+        />
       </View>
     );
   }, [loadingMore]);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView
+      style={styles.safeArea}
+    >
       {/* HEADER */}
       <View style={styles.header}>
         <Pressable
@@ -669,21 +793,34 @@ export default function NotificationsScreen() {
           }}
           hitSlop={10}
           accessibilityRole="button"
-          accessibilityLabel={t("common.back")}
+          accessibilityLabel={t(
+            "common.back",
+          )}
         >
-          <Ionicons name="arrow-back" size={23} color={COLORS.text} />
+          <Ionicons
+            name="arrow-back"
+            size={23}
+            color={COLORS.text}
+          />
         </Pressable>
 
-        <Text style={styles.headerTitle}>{t("notifications.title")}</Text>
+        <Text
+          style={styles.headerTitle}
+        >
+          {t("notifications.title")}
+        </Text>
 
-        <View style={styles.headerAction}>
+        <View
+          style={styles.headerAction}
+        >
           {unreadCount > 0 && (
             <Pressable
               onPress={markAllAsRead}
               hitSlop={8}
               style={({ pressed }) => [
                 styles.markAllButton,
-                pressed && styles.pressed,
+                pressed &&
+                  styles.pressed,
               ]}
               accessibilityRole="button"
               accessibilityLabel="Mark all notifications as read"
@@ -691,7 +828,9 @@ export default function NotificationsScreen() {
               <Ionicons
                 name="checkmark-done"
                 size={21}
-                color={COLORS.primary}
+                color={
+                  COLORS.primary
+                }
               />
             </Pressable>
           )}
@@ -701,37 +840,77 @@ export default function NotificationsScreen() {
       {/* CONTENT */}
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ActivityIndicator
+            size="large"
+            color={COLORS.primary}
+          />
 
-          <Text style={styles.loadingText}>{t("notifications.loading")}</Text>
+          <Text
+            style={styles.loadingText}
+          >
+            {t(
+              "notifications.loading",
+            )}
+          </Text>
         </View>
-      ) : notifications.length === 0 ? (
+      ) : notifications.length ===
+        0 ? (
         <FlatList
           data={[]}
           keyExtractor={() => "empty"}
           renderItem={() => null}
-          contentContainerStyle={styles.emptyList}
+          contentContainerStyle={
+            styles.emptyList
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={refreshNotifications}
-              tintColor={COLORS.primary}
+              onRefresh={
+                refreshNotifications
+              }
+              tintColor={
+                COLORS.primary
+              }
             />
           }
           ListEmptyComponent={
-            <View style={styles.emptyContent}>
-              <View style={styles.emptyIcon}>
+            <View
+              style={
+                styles.emptyContent
+              }
+            >
+              <View
+                style={
+                  styles.emptyIcon
+                }
+              >
                 <Ionicons
                   name="notifications-outline"
                   size={30}
-                  color={COLORS.primary}
+                  color={
+                    COLORS.primary
+                  }
                 />
               </View>
 
-              <Text style={styles.emptyTitle}>{t("notifications.empty")}</Text>
+              <Text
+                style={
+                  styles.emptyTitle
+                }
+              >
+                {t(
+                  "notifications.empty",
+                )}
+              </Text>
 
-              <Text style={styles.emptyText}>
-                {t("notifications.emptyDescription")}
+              <Text
+                style={
+                  styles.emptyText
+                }
+              >
+                {t(
+                  "notifications.emptyDescription",
+                )}
               </Text>
             </View>
           }
@@ -739,23 +918,41 @@ export default function NotificationsScreen() {
       ) : (
         <FlatList
           data={notifications}
-          keyExtractor={keyExtractor}
+          keyExtractor={
+            keyExtractor
+          }
           renderItem={renderItem}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={
+            false
+          }
+          contentContainerStyle={
+            styles.list
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={refreshNotifications}
-              tintColor={COLORS.primary}
+              onRefresh={
+                refreshNotifications
+              }
+              tintColor={
+                COLORS.primary
+              }
             />
           }
-          onEndReached={loadMoreNotifications}
-          onEndReachedThreshold={0.35}
-          ListFooterComponent={renderFooter}
+          onEndReached={
+            loadMoreNotifications
+          }
+          onEndReachedThreshold={
+            0.35
+          }
+          ListFooterComponent={
+            renderFooter
+          }
           initialNumToRender={10}
           maxToRenderPerBatch={10}
-          updateCellsBatchingPeriod={50}
+          updateCellsBatchingPeriod={
+            50
+          }
           windowSize={7}
           removeClippedSubviews
         />
@@ -767,7 +964,8 @@ export default function NotificationsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor:
+      COLORS.background,
   },
 
   header: {
@@ -776,8 +974,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 18,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    backgroundColor: COLORS.background,
+    borderBottomColor:
+      COLORS.border,
+    backgroundColor:
+      COLORS.background,
   },
 
   backButton: {
@@ -817,7 +1017,8 @@ const styles = StyleSheet.create({
   },
 
   loadingText: {
-    color: COLORS.textSecondary,
+    color:
+      COLORS.textSecondary,
     fontSize: 13,
     marginTop: 12,
   },
@@ -837,7 +1038,8 @@ const styles = StyleSheet.create({
     width: 62,
     height: 62,
     borderRadius: 20,
-    backgroundColor: COLORS.surfaceAlt,
+    backgroundColor:
+      COLORS.surfaceAlt,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 15,
@@ -850,7 +1052,8 @@ const styles = StyleSheet.create({
   },
 
   emptyText: {
-    color: COLORS.textSecondary,
+    color:
+      COLORS.textSecondary,
     fontSize: 13,
     lineHeight: 19,
     textAlign: "center",
@@ -858,6 +1061,9 @@ const styles = StyleSheet.create({
   },
 
   list: {
+    width: "100%",
+    maxWidth: 680,
+    alignSelf: "center",
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 40,
@@ -866,7 +1072,8 @@ const styles = StyleSheet.create({
 
   notificationCard: {
     flexDirection: "row",
-    backgroundColor: COLORS.surface,
+    backgroundColor:
+      COLORS.surface,
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: 15,
@@ -883,7 +1090,8 @@ const styles = StyleSheet.create({
   },
 
   unreadCard: {
-    backgroundColor: COLORS.primarySoft,
+    backgroundColor:
+      COLORS.primarySoft,
     borderColor: COLORS.border,
   },
 
@@ -891,7 +1099,8 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 12,
-    backgroundColor: COLORS.surfaceAlt,
+    backgroundColor:
+      COLORS.surfaceAlt,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 11,
@@ -918,12 +1127,14 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 4,
-    backgroundColor: COLORS.primary,
+    backgroundColor:
+      COLORS.primary,
     marginLeft: 8,
   },
 
   notificationMessage: {
-    color: COLORS.textSecondary,
+    color:
+      COLORS.textSecondary,
     fontSize: 13,
     lineHeight: 18,
     marginTop: 3,
@@ -932,12 +1143,14 @@ const styles = StyleSheet.create({
   notificationFooter: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent:
+      "space-between",
     marginTop: 6,
   },
 
   notificationTime: {
-    color: COLORS.textSecondary,
+    color:
+      COLORS.textSecondary,
     fontSize: 11,
     fontWeight: "600",
   },

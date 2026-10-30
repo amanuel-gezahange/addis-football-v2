@@ -722,9 +722,9 @@ export default function GameBookingAction({
             </View>
 
             <View style={styles.checkoutContent}>
-              <Text style={styles.checkoutTitle}>How many players?</Text>
+              <Text style={styles.checkoutTitle}>How many spots?</Text>
               <Text style={styles.checkoutSubtitle}>
-                Choose the number of spots.
+                {spotsLeft} {spotsLeft === 1 ? "spot" : "spots"} available
               </Text>
 
               <View style={styles.checkoutStepperRow}>
@@ -762,25 +762,20 @@ export default function GameBookingAction({
                 </Pressable>
               </View>
 
-              <View style={styles.checkoutPlayerLabelSlot}>
-                <Text style={styles.checkoutPlayerLabel}>{guestLabel}</Text>
-              </View>
-
               <View style={styles.checkoutPriceCard}>
                 <View>
                   <Text style={styles.checkoutPriceLabel}>
                     {numericPrice === 0
                       ? `${selectedQuantity} ${
-                          selectedQuantity === 1 ? "player" : "players"
+                          selectedQuantity === 1 ? "spot" : "spots"
                         }`
-                      : `${numericPrice} ETB × ${selectedQuantity}`}
+                      : `${selectedQuantity} ${
+                          selectedQuantity === 1 ? "spot" : "spots"
+                        } × ${numericPrice} ETB`}
                   </Text>
-                  <Text style={styles.checkoutPriceSubtext}>
-                    {selectedQuantity === 1
-                      ? "1 spot"
-                      : `${selectedQuantity} spots`}
-                  </Text>
+                  <Text style={styles.checkoutPriceSubtext}>Total</Text>
                 </View>
+
                 <Text style={styles.checkoutPriceValue}>
                   {numericPrice === 0 ? "Free" : `${totalAmount} ETB`}
                 </Text>
@@ -829,7 +824,7 @@ export default function GameBookingAction({
             </View>
 
             <Text style={styles.multiSpotTitle}>
-              Reserve {selectedQuantity} spots?
+              Reserve {selectedQuantity} spots
             </Text>
 
             <Text style={styles.multiSpotDescription}>
@@ -1087,7 +1082,8 @@ export default function GameBookingAction({
                     {selectedPaymentInfo?.label} payment
                   </Text>
                   <Text style={styles.checkoutSubtitle}>
-                    Send the amount below, then confirm when you're done.
+                    Send the exact amount below. After paying, tap "I've paid"
+                    to notify the organizer.
                   </Text>
 
                   <View style={styles.checkoutAmountCard}>
@@ -1146,7 +1142,7 @@ export default function GameBookingAction({
                         </Text>
                       </View>
                       <Text style={styles.checkoutInstructionText}>
-                        Copy the number above
+                        Copy the Telebirr number
                       </Text>
                     </View>
                     <View style={styles.checkoutInstructionRow}>
@@ -1308,7 +1304,7 @@ export default function GameBookingAction({
 
             {/* Message */}
             <Text style={styles.paymentSubmittedSubtitle}>
-              We've received your payment.{"\n"}
+              Your payment has been submitted.
               Waiting for organizer confirmation.
             </Text>
 
@@ -1984,8 +1980,8 @@ const styles = StyleSheet.create({
   },
   quantityCheckoutScreen: {
     minHeight: 0,
-    height: 548,
-    maxHeight: 548,
+    height: 440,
+    maxHeight: 440,
   },
   checkoutHeader: {
     height: 58,
@@ -2024,12 +2020,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   checkoutStepperRow: {
-    height: 100,
+    height: 78,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 38,
-    marginTop: 18,
+    gap: 28,
+    marginTop: 12,
   },
   checkoutStepperButton: {
     width: 58,
@@ -2082,7 +2078,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   checkoutPriceCard: {
-    minHeight: 88,
+    minHeight: 72,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#DDE6E2",

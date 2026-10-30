@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -55,6 +56,9 @@ type GameDetails = {
   bank_account_name: string | null;
   city: string | null;
   maps_url: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  created_by: string | null;
 };
 
 const GAME_DETAIL_HERO = require("../../../assets/images/details.jpg");
@@ -82,6 +86,9 @@ function getFavoriteCacheKey(userId: string, gameId: string) {
 export default function GameDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { language, t } = useLanguage();
+  const { width, height } = useWindowDimensions();
+
+  const isSmallPhone = width <= 375 && height <= 700;
 
   const gameId = id ? String(id) : null;
 
@@ -110,12 +117,16 @@ export default function GameDetailsScreen() {
     null,
   );
   const [currentBookingQuantity, setCurrentBookingQuantity] = useState(1);
+  const [currentBookingPricePaid, setCurrentBookingPricePaid] = useState<
+    number | null
+  >(null);
   const [selectedBookingQuantity, setSelectedBookingQuantity] = useState(1);
   const [quantityModalVisible, setQuantityModalVisible] = useState(false);
   const [updatingQuantity, setUpdatingQuantity] = useState(false);
   const [quantityUpdateError, setQuantityUpdateError] = useState<string | null>(
     null,
   );
+  const [openingOrganizerMessage, setOpeningOrganizerMessage] = useState(false);
 
   const [bookingState, setBookingState] = useState<GameBookingState>({
     bookingStatus: null,
@@ -125,6 +136,66 @@ export default function GameDetailsScreen() {
   });
 
   const scrollViewRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadCurrentBookingPaymentDetails() {
+      if (!game?.id) return;
+
+      if (
+        bookingState.bookingStatus !== "confirmed" &&
+        bookingState.bookingStatus !== "pending_payment"
+      ) {
+        if (active) {
+          setCurrentBookingQuantity(1);
+          setCurrentBookingPricePaid(null);
+        }
+        return;
+      }
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user || !active) return;
+
+      const { data: booking, error: bookingError } = await supabase
+        .from("bookings")
+        .select("quantity,price_paid")
+        .eq("user_id", user.id)
+        .eq("game_id", game.id)
+        .in("status", ["confirmed", "pending_payment"])
+        .order("id", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!active) return;
+
+      if (bookingError) {
+        console.log(
+          "Load booking payment details error:",
+          bookingError.message,
+        );
+        return;
+      }
+
+      setCurrentBookingQuantity(Math.max(Number(booking?.quantity ?? 1), 1));
+
+      const rawPricePaid = booking?.price_paid;
+      setCurrentBookingPricePaid(
+        rawPricePaid === null || rawPricePaid === undefined
+          ? null
+          : Number(rawPricePaid),
+      );
+    }
+
+    void loadCurrentBookingPaymentDetails();
+
+    return () => {
+      active = false;
+    };
+  }, [game?.id, bookingState.bookingStatus, bookingState.paymentStatus]);
 
   useEffect(() => {
     if (!gameId) {
@@ -301,7 +372,10 @@ export default function GameDetailsScreen() {
           bank_account_number,
           bank_account_name,
           city,
-          maps_url
+          maps_url,
+          latitude,
+          longitude,
+          created_by
         `,
       )
       .eq("id", Number(id))
@@ -621,15 +695,27 @@ export default function GameDetailsScreen() {
   async function openLocation() {
     if (!game) return;
 
-    const savedMapsUrl = String(game.maps_url ?? "").trim();
+    const latitude = Number(game.latitude);
+    const longitude = Number(game.longitude);
 
+    const hasExactCoordinates =
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude) &&
+      latitude >= -90 &&
+      latitude <= 90 &&
+      longitude >= -180 &&
+      longitude <= 180;
+
+    const savedMapsUrl = String(game.maps_url ?? "").trim();
     const location = getLocation();
 
-    const targetUrl =
-      savedMapsUrl ||
-      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-        location,
-      )}`;
+    const targetUrl = hasExactCoordinates
+      ? `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`
+      : savedMapsUrl
+        ? savedMapsUrl
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+            location,
+          )}`;
 
     try {
       await Linking.openURL(targetUrl);
@@ -661,7 +747,7 @@ export default function GameDetailsScreen() {
 
       const { data: booking, error: bookingError } = await supabase
         .from("bookings")
-        .select("quantity")
+        .select("quantity,price_paid")
         .eq("user_id", user.id)
         .eq("game_id", game.id)
         .eq("status", "confirmed")
@@ -677,6 +763,14 @@ export default function GameDetailsScreen() {
 
       setCurrentBookingQuantity(quantity);
       setSelectedBookingQuantity(quantity);
+
+      const rawPricePaid = booking?.price_paid;
+      setCurrentBookingPricePaid(
+        rawPricePaid === null || rawPricePaid === undefined
+          ? null
+          : Number(rawPricePaid),
+      );
+
       setManageBookingVisible(true);
     } catch (bookingError: any) {
       console.log(
@@ -691,12 +785,72 @@ export default function GameDetailsScreen() {
   }
 
   function closeManageBooking() {
-    if (cancellingBooking) {
+    if (cancellingBooking || openingOrganizerMessage) {
       return;
     }
 
     setCancelBookingError(null);
     setManageBookingVisible(false);
+  }
+
+  async function contactOrganizer() {
+    if (!game?.created_by || openingOrganizerMessage) {
+      if (!game?.created_by) {
+        setCancelBookingError(
+          "We couldn't find the organizer's account. Please try again later.",
+        );
+      }
+      return;
+    }
+
+    setOpeningOrganizerMessage(true);
+    setCancelBookingError(null);
+
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError) throw userError;
+
+      if (!user) {
+        setManageBookingVisible(false);
+        router.push("/login");
+        return;
+      }
+
+      if (user.id === game.created_by) {
+        throw new Error("You are the organizer of this game.");
+      }
+
+      const { data, error: conversationError } = await supabase.rpc(
+        "get_or_create_direct_conversation",
+        { p_other_user_id: game.created_by },
+      );
+
+      if (conversationError) throw conversationError;
+      if (data === null || data === undefined) {
+        throw new Error("Could not open the organizer conversation.");
+      }
+
+      setManageBookingVisible(false);
+      router.push({
+        pathname: "/community/chat/[id]",
+        params: { id: String(data) },
+      });
+    } catch (messageError: any) {
+      console.log(
+        "Could not open organizer conversation:",
+        messageError?.message || messageError,
+      );
+      setCancelBookingError(
+        messageError?.message ||
+          "We couldn't open the organizer conversation. Please try again.",
+      );
+    } finally {
+      setOpeningOrganizerMessage(false);
+    }
   }
 
   function openChangeQuantity() {
@@ -943,6 +1097,19 @@ export default function GameDetailsScreen() {
   const isPaymentConfirmed =
     isBookingConfirmed && (isFree || bookingState.paymentStatus === "paid");
 
+  const isPaidOrganizerBooking =
+    isBookingConfirmed &&
+    bookingState.paymentStatus === "paid" &&
+    game.payment_method === "organizer";
+
+  const bookingQuantity = Math.max(currentBookingQuantity, 1);
+  const calculatedBookingTotal = Number(game.price ?? 0) * bookingQuantity;
+  const confirmedPaymentAmount =
+    currentBookingPricePaid !== null
+      ? currentBookingPricePaid
+      : calculatedBookingTotal;
+  const submittedPaymentAmount = calculatedBookingTotal;
+
   const heroImage = game.image_url ? { uri: game.image_url } : GAME_DETAIL_HERO;
 
   return (
@@ -955,7 +1122,14 @@ export default function GameDetailsScreen() {
       >
         {/* HERO */}
 
-        <View style={styles.hero}>
+        <View
+          style={[
+            styles.hero,
+            isSmallPhone && {
+              height: 205,
+            },
+          ]}
+        >
           <Image
             source={heroImage}
             style={styles.heroImage}
@@ -1108,7 +1282,9 @@ export default function GameDetailsScreen() {
 
           {/* PLAYERS */}
 
-          <View style={styles.section}>
+          <View
+            style={[styles.section, isSmallPhone && styles.playersSectionSmall]}
+          >
             <View style={styles.playersHeader}>
               <Text style={[styles.sectionTitle, styles.playersSectionTitle]}>
                 Players
@@ -1270,7 +1446,7 @@ export default function GameDetailsScreen() {
           )}
           {/* PAYMENT */}
 
-          {!isPaymentSubmitted && !isBookingConfirmed && (
+          {
             <>
               <View style={styles.divider} />
 
@@ -1279,7 +1455,27 @@ export default function GameDetailsScreen() {
                   {t("gameDetails.payment")}
                 </Text>
 
-                {isPayAtVenue ? (
+                {isPaymentSubmitted ? (
+                  <View style={styles.paymentSubmittedCard}>
+                    <View style={styles.paymentSubmittedIcon}>
+                      <Ionicons name="time-outline" size={23} color="#B76E00" />
+                    </View>
+
+                    <View style={styles.paymentSubmittedContent}>
+                      <Text style={styles.paymentSubmittedLabel}>
+                        Payment submitted
+                      </Text>
+
+                      <Text style={styles.paymentSubmittedPrice}>
+                        {submittedPaymentAmount} ETB
+                      </Text>
+
+                      <Text style={styles.paymentSubmittedDescription}>
+                        Waiting for organizer confirmation.
+                      </Text>
+                    </View>
+                  </View>
+                ) : isPayAtVenue ? (
                   <View style={styles.paymentCard}>
                     <View style={styles.paymentTopRow}>
                       <View style={styles.paymentIcon}>
@@ -1318,7 +1514,9 @@ export default function GameDetailsScreen() {
                         </Text>
 
                         <Text style={styles.paymentConfirmedPrice}>
-                          {isFree ? t("gameDetails.free") : `${game.price} ETB`}
+                          {isFree
+                            ? t("gameDetails.free")
+                            : `${confirmedPaymentAmount} ETB`}
                         </Text>
                       </View>
                     </View>
@@ -1368,7 +1566,7 @@ export default function GameDetailsScreen() {
                 )}
               </View>
             </>
-          )}
+          }
 
           <View style={styles.bottomSpace} />
 
@@ -1486,7 +1684,10 @@ export default function GameDetailsScreen() {
 
       <SafeAreaView
         edges={["top"]}
-        style={styles.stickyBackContainer}
+        style={[
+          styles.stickyBackContainer,
+          isSmallPhone && styles.stickyBackContainerSmall,
+        ]}
         pointerEvents="box-none"
       >
         <Pressable
@@ -1582,60 +1783,122 @@ export default function GameDetailsScreen() {
               <Text style={styles.manageModalError}>{cancelBookingError}</Text>
             )}
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.changeSpotsButton,
-                pressed && styles.changeSpotsButtonPressed,
-              ]}
-              onPress={openChangeQuantity}
-              disabled={cancellingBooking}
-            >
-              <View style={styles.changeSpotsButtonLeft}>
-                <Ionicons
-                  name="people-outline"
-                  size={20}
-                  color={COLORS.primary}
-                />
+            {isPaidOrganizerBooking ? (
+              <>
+                <View style={styles.paidBookingNotice}>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={20}
+                    color={COLORS.primary}
+                  />
+                  <View style={styles.paidBookingNoticeText}>
+                    <Text style={styles.paidBookingNoticeTitle}>
+                      Payment confirmed
+                    </Text>
+                    <Text style={styles.paidBookingNoticeDescription}>
+                      Need to change your spots or cancel? Since this booking
+                      has already been paid, contact the organizer to handle the
+                      change and any refund.
+                    </Text>
+                  </View>
+                </View>
 
-                <Text style={styles.changeSpotsButtonText}>
-                  Change number of spots
-                </Text>
-              </View>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.contactOrganizerButton,
+                    pressed && styles.contactOrganizerButtonPressed,
+                    openingOrganizerMessage && { opacity: 0.65 },
+                  ]}
+                  onPress={() => {
+                    void contactOrganizer();
+                  }}
+                  disabled={openingOrganizerMessage}
+                >
+                  {openingOrganizerMessage ? (
+                    <ActivityIndicator size="small" color={COLORS.white} />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="chatbubble-outline"
+                        size={19}
+                        color={COLORS.white}
+                      />
+                      <Text style={styles.contactOrganizerButtonText}>
+                        Contact organizer
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
 
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={COLORS.textSecondary}
-              />
-            </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.paidKeepBookingButton,
+                    pressed && styles.paidKeepBookingButtonPressed,
+                  ]}
+                  onPress={closeManageBooking}
+                  disabled={openingOrganizerMessage}
+                >
+                  <Text style={styles.paidKeepBookingButtonText}>
+                    Keep booking
+                  </Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.changeSpotsButton,
+                    pressed && styles.changeSpotsButtonPressed,
+                  ]}
+                  onPress={openChangeQuantity}
+                  disabled={cancellingBooking}
+                >
+                  <View style={styles.changeSpotsButtonLeft}>
+                    <Ionicons
+                      name="people-outline"
+                      size={20}
+                      color={COLORS.primary}
+                    />
+                    <Text style={styles.changeSpotsButtonText}>
+                      Change number of spots
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={COLORS.textSecondary}
+                  />
+                </Pressable>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.keepBookingButton,
-                pressed && styles.keepBookingButtonPressed,
-              ]}
-              onPress={closeManageBooking}
-              disabled={cancellingBooking}
-            >
-              <Text style={styles.keepBookingButtonText}>Keep booking</Text>
-            </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.keepBookingButton,
+                    pressed && styles.keepBookingButtonPressed,
+                  ]}
+                  onPress={closeManageBooking}
+                  disabled={cancellingBooking}
+                >
+                  <Text style={styles.keepBookingButtonText}>Keep booking</Text>
+                </Pressable>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.cancelBookingButton,
-                pressed && styles.cancelBookingButtonPressed,
-              ]}
-              onPress={cancelCurrentBooking}
-              disabled={cancellingBooking}
-            >
-              {cancellingBooking ? (
-                <ActivityIndicator size="small" color={COLORS.danger} />
-              ) : (
-                <Text style={styles.cancelBookingButtonText}>
-                  Cancel booking
-                </Text>
-              )}
-            </Pressable>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.cancelBookingButton,
+                    pressed && styles.cancelBookingButtonPressed,
+                  ]}
+                  onPress={cancelCurrentBooking}
+                  disabled={cancellingBooking}
+                >
+                  {cancellingBooking ? (
+                    <ActivityIndicator size="small" color={COLORS.danger} />
+                  ) : (
+                    <Text style={styles.cancelBookingButtonText}>
+                      Cancel booking
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -1847,6 +2110,66 @@ function QuickDetail({ icon, value, label, danger = false }: QuickDetailProps) {
 }
 
 const styles = StyleSheet.create({
+  paidBookingNotice: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 14,
+    marginBottom: 14,
+    borderRadius: 15,
+    backgroundColor: "#E7F8F1",
+  },
+  paidBookingNoticeText: { flex: 1 },
+  paidBookingNoticeTitle: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: "900",
+    marginBottom: 4,
+  },
+  paidBookingNoticeDescription: {
+    color: COLORS.textSecondary,
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: "600",
+  },
+  contactOrganizerButton: {
+    width: "100%",
+    minHeight: 54,
+    borderRadius: 15,
+    backgroundColor: COLORS.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  contactOrganizerButtonPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.99 }],
+  },
+  contactOrganizerButtonText: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  paidKeepBookingButton: {
+    width: "100%",
+    minHeight: 50,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.surfaceAlt,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  paidKeepBookingButtonPressed: { opacity: 0.72 },
+  paidKeepBookingButtonText: {
+    color: COLORS.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+
   changeSpotsButton: {
     width: "100%",
     minHeight: 54,
@@ -2419,6 +2742,11 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
 
+  stickyBackContainerSmall: {
+    paddingLeft: 16,
+    paddingTop: 8,
+  },
+
   heroButton: {
     width: 44,
     height: 44,
@@ -2486,6 +2814,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
     marginBottom: 12,
+  },
+  playersSectionSmall: {
+    paddingTop: 14,
+    paddingBottom: 10,
   },
 
   playersSectionTitle: {
@@ -2732,30 +3064,55 @@ const styles = StyleSheet.create({
   bottomSpace: {
     height: 28,
   },
-
   paymentSubmittedCard: {
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    borderRadius: 16,
-    backgroundColor: "#F7F8FA8E7",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    padding: 18,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#765A00",
+    borderColor: "#F0D9A6",
+    backgroundColor: "#FFF8E8",
+  },
+
+  paymentSubmittedIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFF0CF",
+  },
+
+  paymentSubmittedContent: {
+    flex: 1,
+  },
+
+  paymentSubmittedLabel: {
+    color: "#B76E00",
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 3,
+  },
+
+  paymentSubmittedPrice: {
+    color: COLORS.text,
+    fontSize: 22,
+    fontWeight: "900",
+    marginBottom: 2,
+  },
+
+  paymentSubmittedDescription: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "600",
   },
 
   paymentSubmittedTop: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 11,
-  },
-
-  paymentSubmittedIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: "#D89A00",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 1,
   },
 
   paymentSubmittedHeading: {
@@ -2767,14 +3124,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 19,
     fontWeight: "800",
-  },
-
-  paymentSubmittedPrice: {
-    color: "#14201B",
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: "900",
-    marginTop: 2,
   },
 
   paymentSubmittedStatus: {

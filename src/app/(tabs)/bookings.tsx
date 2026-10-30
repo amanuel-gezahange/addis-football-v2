@@ -24,6 +24,7 @@ import {
 } from "react-native-safe-area-context";
 
 import { COLORS } from "../../constants/colors";
+import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { supabase } from "../../lib/supabase";
 
@@ -75,6 +76,7 @@ type Game = {
 type Booking = {
   id: number;
   status: BookingStatus;
+  quantity: number;
   price_paid: number | null;
   payment_status: PaymentStatus;
   payment_offer_expires_at: string | null;
@@ -151,7 +153,7 @@ function getBookingStatus(
 
   if (booking.status === "cancelled_by_organizer") {
     return {
-      label: t("bookings.gameCancelled"),
+      label: "Cancelled by organizer",
       icon: "close-circle-outline",
       tone: "danger",
     };
@@ -159,7 +161,7 @@ function getBookingStatus(
 
   if (booking.status === "cancelled_by_player") {
     return {
-      label: t("bookings.cancelled"),
+      label: "Cancelled by you",
       icon: "close-circle-outline",
       tone: "neutral",
     };
@@ -258,6 +260,12 @@ const BookingCard = memo(function BookingCard({
   if (!game) {
     return null;
   }
+  const bookingQuantity = Math.max(Number(booking.quantity ?? 1), 1);
+
+  const bookingTotal =
+    booking.price_paid !== null && booking.price_paid !== undefined
+      ? Number(booking.price_paid)
+      : Number(game.price ?? 0) * bookingQuantity;
 
   const cancelled = isCancelledBooking(booking);
   const status = getBookingStatus(booking, t);
@@ -407,7 +415,9 @@ const BookingCard = memo(function BookingCard({
           <Text style={styles.priceText}>
             {game.payment_method === "free"
               ? t("bookings.free")
-              : `${booking.price_paid ?? game.price} ETB`}
+              : bookingQuantity > 1
+                ? `${bookingTotal} ETB · ${bookingQuantity} spots`
+                : `${bookingTotal} ETB`}
           </Text>
         </View>
       </View>
@@ -563,6 +573,7 @@ function PaymentDetailRow({
 
 export default function BookingsScreen() {
   const { language, t } = useLanguage();
+  const { colors, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
@@ -628,7 +639,6 @@ export default function BookingsScreen() {
   const fetchBookings = useCallback(
     async (options?: { showLoading?: boolean; refresh?: boolean }) => {
       const showLoading = options?.showLoading ?? false;
-
       const refresh = options?.refresh ?? false;
 
       if (showLoading && bookingsCache === null) {
@@ -656,32 +666,33 @@ export default function BookingsScreen() {
           .from("bookings")
           .select(
             `
+            id,
+            status,
+            quantity,
+            price_paid,
+            payment_status,
+            payment_offer_expires_at,
+            created_at,
+            games (
               id,
+              title,
+              organizer,
+              area,
+              distance,
+              time,
+              format,
+              skill,
+              price,
+              image_url,
+              starts_at,
+              ends_at,
               status,
-              price_paid,
-              payment_status,
-              payment_offer_expires_at,
-              created_at,
-              games (
-                id,
-                title,
-                organizer,
-                area,
-                distance,
-                time,
-                format,
-                skill,
-                price,
-                image_url,
-                starts_at,
-                ends_at,
-                status,
-                payment_method,
-                payment_provider,
-                payment_phone,
-                payment_account_name
-              )
-            `,
+              payment_method,
+              payment_provider,
+              payment_phone,
+              payment_account_name
+            )
+          `,
           )
           .eq("user_id", user.id)
           .order("created_at", {
@@ -694,8 +705,10 @@ export default function BookingsScreen() {
 
         const nextBookings = (data ?? []) as unknown as Booking[];
 
+        // Always replace both the in-memory cache and screen state
+        // with the latest data returned by Supabase.
         bookingsCache = nextBookings;
-        setBookings(nextBookings);
+        setBookings([...nextBookings]);
       } catch (error: any) {
         console.log("Bookings error:", error?.message ?? error);
       } finally {
@@ -910,6 +923,19 @@ export default function BookingsScreen() {
       return;
     }
 
+    const isPaidOrganizerBooking =
+      booking.status === "confirmed" &&
+      booking.games?.payment_method === "organizer" &&
+      booking.payment_status === "paid";
+
+    if (isPaidOrganizerBooking) {
+      if (booking.games?.id) {
+        router.push(`/game/${booking.games.id}`);
+      }
+
+      return;
+    }
+
     setErrorMessage(null);
     setSelectedBooking(booking);
   }, []);
@@ -930,6 +956,25 @@ export default function BookingsScreen() {
 
     const booking = selectedBooking;
     const game = booking.games;
+
+    if (!game) {
+      return;
+    }
+
+    const isPaidOrganizerBooking =
+      booking.status === "confirmed" &&
+      game.payment_method === "organizer" &&
+      booking.payment_status === "paid";
+
+    // Paid organizer bookings must be handled through the organizer.
+    // Never automatically cancel them from the Bookings page.
+    if (isPaidOrganizerBooking) {
+      setSelectedBooking(null);
+      setErrorMessage(null);
+
+      router.push(`/game/${game.id}`);
+      return;
+    }
 
     const wasWaitlisted = booking.status === "waitlisted";
 
@@ -953,8 +998,6 @@ export default function BookingsScreen() {
       }
 
       /*
-       * IMPORTANT:
-       *
        * Organizer-direct payments must never
        * use the legacy Chapa refund flow.
        *
@@ -1058,197 +1101,181 @@ export default function BookingsScreen() {
      HEADER
      ========================================================== */
 
-  const listHeader = useMemo(
-    () => (
-      <>
-        <Text style={styles.title}>{t("bookings.title")}</Text>
+  const listHeader = (
+    <>
+      <Text style={[styles.title, isDark && { color: colors.white }]}>
+        {t("bookings.title")}
+      </Text>
 
-        <Text style={styles.subtitle}>{t("bookings.subtitle")}</Text>
+      <Text
+        style={[styles.subtitle, isDark && { color: colors.textSecondary }]}
+      >
+        {t("bookings.subtitle")}
+      </Text>
 
-        <View style={styles.sectionTabs}>
-          <Pressable
+      <View style={styles.sectionTabs}>
+        <Pressable
+          style={[
+            styles.sectionTab,
+            activeSection === "upcoming" && styles.sectionTabActive,
+          ]}
+          onPress={() => {
+            setActiveSection("upcoming");
+            setSelectedDate(null);
+          }}
+        >
+          <Text
             style={[
-              styles.sectionTab,
-              activeSection === "upcoming" && styles.sectionTabActive,
+              styles.sectionTabText,
+              activeSection === "upcoming" && styles.sectionTabTextActive,
             ]}
-            onPress={() => {
-              setActiveSection("upcoming");
-              setSelectedDate(null);
-            }}
+          >
+            Upcoming
+          </Text>
+
+          <View
+            style={[
+              styles.sectionCount,
+              activeSection === "upcoming" && styles.sectionCountActive,
+            ]}
           >
             <Text
               style={[
-                styles.sectionTabText,
-                activeSection === "upcoming" && styles.sectionTabTextActive,
+                styles.sectionCountText,
+                activeSection === "upcoming" && styles.sectionCountTextActive,
               ]}
             >
-              Upcoming
+              {sectionCounts.upcoming}
             </Text>
+          </View>
+        </Pressable>
 
-            <View
-              style={[
-                styles.sectionCount,
-                activeSection === "upcoming" && styles.sectionCountActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.sectionCountText,
-                  activeSection === "upcoming" && styles.sectionCountTextActive,
-                ]}
-              >
-                {sectionCounts.upcoming}
-              </Text>
-            </View>
-          </Pressable>
-
-          <Pressable
+        <Pressable
+          style={[
+            styles.sectionTab,
+            activeSection === "history" && styles.sectionTabActive,
+          ]}
+          onPress={() => {
+            setActiveSection("history");
+            setSelectedDate(null);
+          }}
+        >
+          <Text
             style={[
-              styles.sectionTab,
-              activeSection === "history" && styles.sectionTabActive,
+              styles.sectionTabText,
+              activeSection === "history" && styles.sectionTabTextActive,
             ]}
-            onPress={() => {
-              setActiveSection("history");
-              setSelectedDate(null);
-            }}
+          >
+            History
+          </Text>
+
+          <View
+            style={[
+              styles.sectionCount,
+              activeSection === "history" && styles.sectionCountActive,
+            ]}
           >
             <Text
               style={[
-                styles.sectionTabText,
-                activeSection === "history" && styles.sectionTabTextActive,
+                styles.sectionCountText,
+                activeSection === "history" && styles.sectionCountTextActive,
               ]}
             >
-              History
+              {sectionCounts.history}
             </Text>
+          </View>
+        </Pressable>
+      </View>
 
-            <View
-              style={[
-                styles.sectionCount,
-                activeSection === "history" && styles.sectionCountActive,
-              ]}
-            >
-              <Text
-                style={[
-                  styles.sectionCountText,
-                  activeSection === "history" && styles.sectionCountTextActive,
-                ]}
-              >
-                {sectionCounts.history}
-              </Text>
-            </View>
-          </Pressable>
-        </View>
+      <View style={styles.searchRow}>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={20} color={COLORS.textSecondary} />
 
-        <View style={styles.searchRow}>
-          <View style={styles.searchBox}>
-            <Ionicons name="search" size={20} color={COLORS.textSecondary} />
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder={t("bookings.searchPlaceholder")}
+            placeholderTextColor={COLORS.textMuted}
+            style={styles.searchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+            selectionColor={COLORS.primary}
+            returnKeyType="search"
+            blurOnSubmit
+            onSubmitEditing={Keyboard.dismiss}
+          />
 
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder={t("bookings.searchPlaceholder")}
-              placeholderTextColor={COLORS.textMuted}
-              style={styles.searchInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-              selectionColor={COLORS.primary}
-              returnKeyType="search"
-              blurOnSubmit
-              onSubmitEditing={Keyboard.dismiss}
-            />
-
-            {search.length > 0 && (
-              <Pressable
-                style={styles.searchActionButton}
-                onPress={() => setSearch("")}
-                hitSlop={8}
-              >
-                <Ionicons name="close" size={21} color={COLORS.textSecondary} />
-              </Pressable>
-            )}
-
-            <View style={styles.searchDivider} />
-
+          {search.length > 0 && (
             <Pressable
-              style={[
-                styles.searchFilterButton,
-                (bookingStatusFilter !== "all" ||
-                  bookingSortBy !== "upcoming") &&
-                  styles.searchFilterButtonActive,
-              ]}
-              onPress={() => setBookingFilterVisible(true)}
-              hitSlop={6}
+              style={styles.searchActionButton}
+              onPress={() => setSearch("")}
+              hitSlop={8}
             >
-              <Ionicons
-                name="options-outline"
-                size={20}
-                color={
-                  bookingStatusFilter !== "all" || bookingSortBy !== "upcoming"
-                    ? COLORS.white
-                    : COLORS.primary
-                }
-              />
+              <Ionicons name="close" size={21} color={COLORS.textSecondary} />
             </Pressable>
-          </View>
+          )}
+
+          <View style={styles.searchDivider} />
 
           <Pressable
             style={[
-              styles.calendarButton,
-              selectedDate && styles.calendarButtonActive,
+              styles.searchFilterButton,
+              (bookingStatusFilter !== "all" || bookingSortBy !== "upcoming") &&
+                styles.searchFilterButtonActive,
             ]}
-            onPress={() => setCalendarVisible(true)}
-            accessibilityRole="button"
-            accessibilityLabel={t("bookings.openCalendar")}
+            onPress={() => setBookingFilterVisible(true)}
+            hitSlop={6}
           >
             <Ionicons
-              name="calendar-outline"
+              name="options-outline"
               size={20}
-              color={selectedDate ? COLORS.white : COLORS.primary}
+              color={
+                bookingStatusFilter !== "all" || bookingSortBy !== "upcoming"
+                  ? COLORS.white
+                  : COLORS.primary
+              }
             />
           </Pressable>
         </View>
 
-        {selectedDate && (
-          <View style={styles.activeDateFilter}>
-            <Ionicons
-              name="calendar-outline"
-              size={15}
-              color={COLORS.primary}
-            />
+        <Pressable
+          style={[
+            styles.calendarButton,
+            selectedDate && styles.calendarButtonActive,
+          ]}
+          onPress={() => setCalendarVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel={t("bookings.openCalendar")}
+        >
+          <Ionicons
+            name="calendar-outline"
+            size={20}
+            color={selectedDate ? COLORS.white : COLORS.primary}
+          />
+        </Pressable>
+      </View>
 
-            <Text style={styles.activeDateFilterText}>
-              {language === "en"
-                ? new Intl.DateTimeFormat("en-US", {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                    timeZone: "UTC",
-                  }).format(new Date(`${selectedDate}T12:00:00Z`))
-                : formatEthiopianDate(`${selectedDate}T12:00:00Z`, language)}
-            </Text>
+      {selectedDate && (
+        <View style={styles.activeDateFilter}>
+          <Ionicons name="calendar-outline" size={15} color={COLORS.primary} />
 
-            <Pressable onPress={() => setSelectedDate(null)}>
-              <Ionicons
-                name="close-circle"
-                size={19}
-                color={COLORS.textMuted}
-              />
-            </Pressable>
-          </View>
-        )}
-      </>
-    ),
-    [
-      activeSection,
-      bookingSortBy,
-      bookingStatusFilter,
-      language,
-      search,
-      sectionCounts.history,
-      sectionCounts.upcoming,
-      selectedDate,
-      t,
-    ],
+          <Text style={styles.activeDateFilterText}>
+            {language === "en"
+              ? new Intl.DateTimeFormat("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  timeZone: "UTC",
+                }).format(new Date(`${selectedDate}T12:00:00Z`))
+              : formatEthiopianDate(`${selectedDate}T12:00:00Z`, language)}
+          </Text>
+
+          <Pressable onPress={() => setSelectedDate(null)}>
+            <Ionicons name="close-circle" size={19} color={COLORS.textMuted} />
+          </Pressable>
+        </View>
+      )}
+    </>
   );
 
   const emptyComponent = useMemo(
@@ -1295,7 +1322,10 @@ export default function BookingsScreen() {
      ========================================================== */
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+      edges={["top"]}
+    >
       {successMessage && (
         <View
           style={[
@@ -1337,7 +1367,7 @@ export default function BookingsScreen() {
           ListHeaderComponent={listHeader}
           ListEmptyComponent={emptyComponent}
           ItemSeparatorComponent={() => <View style={styles.cardGap} />}
-          style={styles.container}
+          style={[styles.container, { backgroundColor: colors.background }]}
           contentContainerStyle={[
             styles.content,
             isDesktopWeb && styles.contentDesktop,

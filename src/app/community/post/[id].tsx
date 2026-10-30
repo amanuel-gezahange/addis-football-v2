@@ -7,6 +7,7 @@ import {
     Image,
     Keyboard,
     KeyboardAvoidingView,
+    Modal,
     Platform,
     Pressable,
     ScrollView,
@@ -177,6 +178,7 @@ export default function CommunityPostScreen() {
     const [posting, setPosting] = useState(false);
 
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
     const [likingComments, setLikingComments] = useState<
         Record<string, boolean>
     >({});
@@ -189,6 +191,47 @@ export default function CommunityPostScreen() {
 
     const [joiningGroup, setJoiningGroup] = useState(false);
 
+    // =====================================================
+    // COMMENT EDIT / DELETE
+    // =====================================================
+
+    const [editingCommentId, setEditingCommentId] = useState<string | null>(
+        null,
+    );
+
+    const [editingCommentText, setEditingCommentText] = useState("");
+
+    const [savingCommentId, setSavingCommentId] = useState<string | null>(null);
+
+    const [deletingCommentId, setDeletingCommentId] = useState<string | null>(
+        null,
+    );
+
+    const [commentMenuVisible, setCommentMenuVisible] = useState(false);
+
+    const [selectedCommentId, setSelectedCommentId] = useState<string | null>(
+        null,
+    );
+
+    const updateCommentsAndCache = useCallback(
+        (nextComments: Comment[]) => {
+            setComments(nextComments);
+
+            if (postId && post) {
+                const previous = getCommunityPostCache(postId);
+
+                communityPostCache[postId] = {
+                    post,
+                    comments: nextComments,
+                    joined: previous?.joined ?? joined,
+                    membershipResolved:
+                        previous?.membershipResolved ?? !post.groupId,
+                };
+            }
+        },
+        [joined, post, postId],
+    );
+
     const loadPost = useCallback(async () => {
         if (!postId) {
             setError("Post not found.");
@@ -199,6 +242,7 @@ export default function CommunityPostScreen() {
         if (!getCommunityPostCache(postId)) {
             setLoading(true);
         }
+
         setError(null);
 
         try {
@@ -263,10 +307,12 @@ export default function CommunityPostScreen() {
             }
 
             const likeCounts = new Map<string, number>();
+
             const likedByMe = new Set<string>();
 
             commentLikeRows.forEach((like) => {
                 const commentId = String(like.comment_id);
+
                 likeCounts.set(commentId, (likeCounts.get(commentId) ?? 0) + 1);
 
                 if (user && like.user_id === user.id) {
@@ -324,6 +370,7 @@ export default function CommunityPostScreen() {
             setComments(nextComments);
 
             const previous = getCommunityPostCache(postId);
+
             communityPostCache[postId] = {
                 post: nextPost,
                 comments: nextComments,
@@ -368,6 +415,7 @@ export default function CommunityPostScreen() {
         }
 
         const cached = getCommunityPostCache(postId);
+
         if (!cached?.membershipResolved) {
             setMembershipLoading(true);
         }
@@ -409,6 +457,7 @@ export default function CommunityPostScreen() {
             }
 
             const nextJoined = !!data;
+
             setJoined(nextJoined);
 
             if (postId && post) {
@@ -421,6 +470,7 @@ export default function CommunityPostScreen() {
             }
         } catch (membershipError) {
             console.error("Failed to load group membership:", membershipError);
+
             setJoined(false);
         } finally {
             setMembershipLoading(false);
@@ -480,6 +530,7 @@ export default function CommunityPostScreen() {
             }
         } catch (joinError) {
             console.error("Failed to join group:", joinError);
+
             Alert.alert("Couldn't join group", "Please try again.");
         } finally {
             setJoiningGroup(false);
@@ -510,6 +561,7 @@ export default function CommunityPostScreen() {
                     },
                 ],
             );
+
             return;
         }
 
@@ -579,9 +631,147 @@ export default function CommunityPostScreen() {
             Keyboard.dismiss();
         } catch (submitError) {
             console.error("Failed to post comment:", submitError);
+
+            Alert.alert("Couldn't post comment", "Please try again.");
         } finally {
             setPosting(false);
         }
+    }
+
+    function startEditingComment(comment: Comment) {
+        if (comment.userId !== currentUserId) {
+            return;
+        }
+
+        setEditingCommentId(comment.id);
+        setEditingCommentText(comment.text);
+    }
+
+    function cancelEditingComment() {
+        setEditingCommentId(null);
+        setEditingCommentText("");
+        Keyboard.dismiss();
+    }
+
+    async function saveEditedComment(commentId: string) {
+        const content = editingCommentText.trim();
+
+        if (!content || savingCommentId || !currentUserId) {
+            return;
+        }
+
+        const existing = comments.find((comment) => comment.id === commentId);
+
+        if (!existing || existing.userId !== currentUserId) {
+            return;
+        }
+
+        if (content === existing.text) {
+            cancelEditingComment();
+            return;
+        }
+
+        setSavingCommentId(commentId);
+
+        try {
+            const { error: updateError } = await supabase
+                .from("community_post_comments")
+                .update({
+                    content,
+                })
+                .eq("id", Number(commentId))
+                .eq("user_id", currentUserId);
+
+            if (updateError) {
+                throw updateError;
+            }
+
+            const nextComments = comments.map((comment) =>
+                comment.id === commentId
+                    ? {
+                          ...comment,
+                          text: content,
+                      }
+                    : comment,
+            );
+
+            updateCommentsAndCache(nextComments);
+
+            setEditingCommentId(null);
+            setEditingCommentText("");
+            Keyboard.dismiss();
+        } catch (updateError) {
+            console.error("Failed to edit comment:", updateError);
+
+            Alert.alert("Couldn't edit comment", "Please try again.");
+        } finally {
+            setSavingCommentId(null);
+        }
+    }
+
+    async function deleteComment(commentId: string) {
+        if (!currentUserId || deletingCommentId) {
+            return;
+        }
+
+        const existing = comments.find((comment) => comment.id === commentId);
+
+        if (!existing || existing.userId !== currentUserId) {
+            return;
+        }
+
+        setDeletingCommentId(commentId);
+
+        try {
+            const { error: deleteError } = await supabase
+                .from("community_post_comments")
+                .delete()
+                .eq("id", Number(commentId))
+                .eq("user_id", currentUserId);
+
+            if (deleteError) {
+                throw deleteError;
+            }
+
+            const nextComments = comments.filter(
+                (comment) => comment.id !== commentId,
+            );
+
+            updateCommentsAndCache(nextComments);
+
+            if (editingCommentId === commentId) {
+                setEditingCommentId(null);
+                setEditingCommentText("");
+            }
+
+            Keyboard.dismiss();
+        } catch (deleteError) {
+            console.error("Failed to delete comment:", deleteError);
+
+            Alert.alert("Couldn't delete comment", "Please try again.");
+        } finally {
+            setDeletingCommentId(null);
+        }
+    }
+
+    function confirmDeleteComment(commentId: string) {
+        Alert.alert(
+            "Delete comment?",
+            "This comment will be permanently deleted.",
+            [
+                {
+                    text: "Cancel",
+                    style: "cancel",
+                },
+                {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () => {
+                        void deleteComment(commentId);
+                    },
+                },
+            ],
+        );
     }
 
     async function toggleCommentLike(commentId: string) {
@@ -620,6 +810,7 @@ export default function CommunityPostScreen() {
 
             if (postId && post) {
                 const previous = getCommunityPostCache(postId);
+
                 communityPostCache[postId] = {
                     post,
                     comments: nextComments,
@@ -679,6 +870,7 @@ export default function CommunityPostScreen() {
 
                 if (postId && post) {
                     const previous = getCommunityPostCache(postId);
+
                     communityPostCache[postId] = {
                         post,
                         comments: nextComments,
@@ -699,7 +891,6 @@ export default function CommunityPostScreen() {
             }));
         }
     }
-
     if (loading) {
         return (
             <SafeAreaView style={styles.screen}>
@@ -780,6 +971,8 @@ export default function CommunityPostScreen() {
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode="interactive"
                 >
+                    {/* POST */}
+
                     <View style={styles.postCard}>
                         <View style={styles.postHeader}>
                             {post.avatar ? (
@@ -824,9 +1017,12 @@ export default function CommunityPostScreen() {
                                     uri: post.image,
                                 }}
                                 style={styles.postImage}
+                                resizeMode="cover"
                             />
                         )}
                     </View>
+
+                    {/* COMMENTS HEADER */}
 
                     <View style={styles.commentsHeader}>
                         <Text style={styles.commentsTitle}>Comments</Text>
@@ -835,6 +1031,8 @@ export default function CommunityPostScreen() {
                             {comments.length}
                         </Text>
                     </View>
+
+                    {/* COMMENTS */}
 
                     {comments.length === 0 ? (
                         <View style={styles.emptyComments}>
@@ -858,95 +1056,294 @@ export default function CommunityPostScreen() {
                         </View>
                     ) : (
                         <View style={styles.commentsList}>
-                            {comments.map((comment) => (
-                                <View
-                                    key={comment.id}
-                                    style={styles.commentRow}
-                                >
-                                    {comment.avatar ? (
-                                        <Image
-                                            source={{
-                                                uri: comment.avatar,
-                                            }}
-                                            style={styles.commentAvatar}
-                                        />
-                                    ) : (
-                                        <View
-                                            style={styles.commentAvatarFallback}
-                                        >
-                                            <Ionicons
-                                                name="person"
-                                                size={16}
-                                                color={COLORS.primary}
-                                            />
-                                        </View>
-                                    )}
+                            {comments.map((comment) => {
+                                const isMine =
+                                    !!currentUserId &&
+                                    comment.userId === currentUserId;
 
-                                    <View style={styles.commentContent}>
-                                        <View style={styles.commentBubble}>
-                                            <Text style={styles.commentAuthor}>
-                                                {comment.author}
-                                            </Text>
+                                const isEditing =
+                                    editingCommentId === comment.id;
 
-                                            <Text style={styles.commentText}>
-                                                {comment.text}
-                                            </Text>
-                                        </View>
+                                const isSaving = savingCommentId === comment.id;
 
-                                        <View style={styles.commentActionsRow}>
-                                            <Text style={styles.commentTime}>
-                                                {comment.time}
-                                            </Text>
+                                const isDeleting =
+                                    deletingCommentId === comment.id;
 
-                                            <Pressable
-                                                hitSlop={8}
-                                                disabled={
-                                                    !!likingComments[comment.id]
-                                                }
-                                                onPress={() => {
-                                                    void toggleCommentLike(
-                                                        comment.id,
-                                                    );
+                                return (
+                                    <View
+                                        key={comment.id}
+                                        style={styles.commentRow}
+                                    >
+                                        {comment.avatar ? (
+                                            <Image
+                                                source={{
+                                                    uri: comment.avatar,
                                                 }}
+                                                style={styles.commentAvatar}
+                                            />
+                                        ) : (
+                                            <View
+                                                style={
+                                                    styles.commentAvatarFallback
+                                                }
                                             >
-                                                <Text
-                                                    style={[
-                                                        styles.commentLikeAction,
-                                                        comment.likedByMe &&
-                                                            styles.commentLikeActionActive,
-                                                    ]}
-                                                >
-                                                    Like
-                                                </Text>
-                                            </Pressable>
+                                                <Ionicons
+                                                    name="person"
+                                                    size={16}
+                                                    color={COLORS.primary}
+                                                />
+                                            </View>
+                                        )}
 
-                                            {comment.likes > 0 && (
+                                        <View style={styles.commentContent}>
+                                            <View style={styles.commentBubble}>
                                                 <View
                                                     style={
-                                                        styles.commentLikeCount
+                                                        styles.commentAuthorRow
                                                     }
                                                 >
-                                                    <Ionicons
-                                                        name="heart"
-                                                        size={11}
-                                                        color={COLORS.white}
-                                                    />
                                                     <Text
                                                         style={
-                                                            styles.commentLikeCountText
+                                                            styles.commentAuthor
                                                         }
                                                     >
-                                                        {comment.likes}
+                                                        {comment.author}
                                                     </Text>
+
+                                                    {isMine && !isEditing && (
+                                                        <Pressable
+                                                            hitSlop={10}
+                                                            disabled={
+                                                                isDeleting
+                                                            }
+                                                            style={({
+                                                                pressed,
+                                                            }) => [
+                                                                styles.commentMenuButton,
+                                                                pressed &&
+                                                                    styles.pressed,
+                                                            ]}
+                                                            onPress={() => {
+                                                                setSelectedCommentId(
+                                                                    comment.id,
+                                                                );
+                                                                setCommentMenuVisible(
+                                                                    true,
+                                                                );
+                                                            }}
+                                                        >
+                                                            {isDeleting ? (
+                                                                <ActivityIndicator
+                                                                    size="small"
+                                                                    color={
+                                                                        COLORS.textSecondary
+                                                                    }
+                                                                />
+                                                            ) : (
+                                                                <Ionicons
+                                                                    name="ellipsis-horizontal"
+                                                                    size={18}
+                                                                    color={
+                                                                        COLORS.textSecondary
+                                                                    }
+                                                                />
+                                                            )}
+                                                        </Pressable>
+                                                    )}
+                                                </View>
+
+                                                {isEditing ? (
+                                                    <View
+                                                        style={
+                                                            styles.editCommentContainer
+                                                        }
+                                                    >
+                                                        <TextInput
+                                                            value={
+                                                                editingCommentText
+                                                            }
+                                                            onChangeText={
+                                                                setEditingCommentText
+                                                            }
+                                                            style={
+                                                                styles.editCommentInput
+                                                            }
+                                                            multiline
+                                                            autoFocus
+                                                            maxLength={1000}
+                                                            returnKeyType="done"
+                                                            blurOnSubmit
+                                                            placeholder="Edit comment..."
+                                                            placeholderTextColor={
+                                                                COLORS.textMuted
+                                                            }
+                                                            onSubmitEditing={() => {
+                                                                if (
+                                                                    editingCommentText.trim()
+                                                                ) {
+                                                                    void saveEditedComment(
+                                                                        comment.id,
+                                                                    );
+                                                                }
+
+                                                                Keyboard.dismiss();
+                                                            }}
+                                                        />
+
+                                                        <View
+                                                            style={
+                                                                styles.editActionsRow
+                                                            }
+                                                        >
+                                                            <Pressable
+                                                                disabled={
+                                                                    isSaving
+                                                                }
+                                                                onPress={
+                                                                    cancelEditingComment
+                                                                }
+                                                                style={({
+                                                                    pressed,
+                                                                }) => [
+                                                                    styles.editCancelButton,
+                                                                    pressed &&
+                                                                        styles.pressed,
+                                                                ]}
+                                                            >
+                                                                <Text
+                                                                    style={
+                                                                        styles.editCancelText
+                                                                    }
+                                                                >
+                                                                    Cancel
+                                                                </Text>
+                                                            </Pressable>
+
+                                                            <Pressable
+                                                                disabled={
+                                                                    !editingCommentText.trim() ||
+                                                                    isSaving
+                                                                }
+                                                                onPress={() => {
+                                                                    void saveEditedComment(
+                                                                        comment.id,
+                                                                    );
+                                                                }}
+                                                                style={({
+                                                                    pressed,
+                                                                }) => [
+                                                                    styles.editSaveButton,
+                                                                    (!editingCommentText.trim() ||
+                                                                        isSaving) &&
+                                                                        styles.editSaveButtonDisabled,
+                                                                    pressed &&
+                                                                        !!editingCommentText.trim() &&
+                                                                        !isSaving &&
+                                                                        styles.pressed,
+                                                                ]}
+                                                            >
+                                                                {isSaving ? (
+                                                                    <ActivityIndicator
+                                                                        size="small"
+                                                                        color={
+                                                                            COLORS.white
+                                                                        }
+                                                                    />
+                                                                ) : (
+                                                                    <Text
+                                                                        style={
+                                                                            styles.editSaveText
+                                                                        }
+                                                                    >
+                                                                        Save
+                                                                    </Text>
+                                                                )}
+                                                            </Pressable>
+                                                        </View>
+                                                    </View>
+                                                ) : (
+                                                    <Text
+                                                        style={
+                                                            styles.commentText
+                                                        }
+                                                    >
+                                                        {comment.text}
+                                                    </Text>
+                                                )}
+                                            </View>
+
+                                            {!isEditing && (
+                                                <View
+                                                    style={
+                                                        styles.commentActionsRow
+                                                    }
+                                                >
+                                                    <Text
+                                                        style={
+                                                            styles.commentTime
+                                                        }
+                                                    >
+                                                        {comment.time}
+                                                    </Text>
+
+                                                    <Pressable
+                                                        hitSlop={8}
+                                                        disabled={
+                                                            !!likingComments[
+                                                                comment.id
+                                                            ]
+                                                        }
+                                                        onPress={() => {
+                                                            void toggleCommentLike(
+                                                                comment.id,
+                                                            );
+                                                        }}
+                                                    >
+                                                        <Text
+                                                            style={[
+                                                                styles.commentLikeAction,
+                                                                comment.likedByMe &&
+                                                                    styles.commentLikeActionActive,
+                                                            ]}
+                                                        >
+                                                            Like
+                                                        </Text>
+                                                    </Pressable>
+
+                                                    {comment.likes > 0 && (
+                                                        <View
+                                                            style={
+                                                                styles.commentLikeCount
+                                                            }
+                                                        >
+                                                            <Ionicons
+                                                                name="heart"
+                                                                size={11}
+                                                                color={
+                                                                    COLORS.white
+                                                                }
+                                                            />
+
+                                                            <Text
+                                                                style={
+                                                                    styles.commentLikeCountText
+                                                                }
+                                                            >
+                                                                {comment.likes}
+                                                            </Text>
+                                                        </View>
+                                                    )}
                                                 </View>
                                             )}
                                         </View>
                                     </View>
-                                </View>
-                            ))}
+                                );
+                            })}
                         </View>
                     )}
                 </ScrollView>
+
+                {/* COMPOSER */}
 
                 <View style={styles.composerContainer}>
                     {membershipLoading ? (
@@ -979,6 +1376,7 @@ export default function CommunityPostScreen() {
                                         size={18}
                                         color={COLORS.white}
                                     />
+
                                     <Text style={styles.joinToCommentText}>
                                         Join {post.group} to comment
                                     </Text>
@@ -1034,6 +1432,116 @@ export default function CommunityPostScreen() {
                     )}
                 </View>
             </KeyboardAvoidingView>
+
+            <Modal
+                visible={commentMenuVisible}
+                transparent
+                animationType="fade"
+                statusBarTranslucent
+                onRequestClose={() => {
+                    setCommentMenuVisible(false);
+                    setSelectedCommentId(null);
+                }}
+            >
+                <Pressable
+                    style={styles.menuOverlay}
+                    onPress={() => {
+                        setCommentMenuVisible(false);
+                        setSelectedCommentId(null);
+                    }}
+                >
+                    <Pressable
+                        style={styles.commentMenuSheet}
+                        onPress={(event) => {
+                            event.stopPropagation();
+                        }}
+                    >
+                        <View style={styles.menuHandle} />
+
+                        <Text style={styles.menuTitle}>Comment options</Text>
+
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.menuOption,
+                                pressed && styles.menuOptionPressed,
+                            ]}
+                            onPress={() => {
+                                const selectedComment = comments.find(
+                                    (item) => item.id === selectedCommentId,
+                                );
+
+                                setCommentMenuVisible(false);
+                                setSelectedCommentId(null);
+
+                                if (selectedComment) {
+                                    startEditingComment(selectedComment);
+                                }
+                            }}
+                        >
+                            <View style={styles.menuOptionIcon}>
+                                <Ionicons
+                                    name="pencil-outline"
+                                    size={20}
+                                    color={COLORS.text}
+                                />
+                            </View>
+
+                            <Text style={styles.menuOptionText}>
+                                Edit comment
+                            </Text>
+                        </Pressable>
+
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.menuOption,
+                                pressed && styles.menuOptionPressed,
+                            ]}
+                            onPress={() => {
+                                const id = selectedCommentId;
+
+                                setCommentMenuVisible(false);
+                                setSelectedCommentId(null);
+
+                                if (id) {
+                                    setTimeout(() => {
+                                        confirmDeleteComment(id);
+                                    }, 250);
+                                }
+                            }}
+                        >
+                            <View style={styles.menuOptionIcon}>
+                                <Ionicons
+                                    name="trash-outline"
+                                    size={20}
+                                    color={COLORS.danger}
+                                />
+                            </View>
+
+                            <Text
+                                style={[
+                                    styles.menuOptionText,
+                                    styles.menuDeleteText,
+                                ]}
+                            >
+                                Delete comment
+                            </Text>
+                        </Pressable>
+
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.menuCancelButton,
+                                pressed && styles.menuOptionPressed,
+                            ]}
+                            onPress={() => {
+                                setCommentMenuVisible(false);
+                                setSelectedCommentId(null);
+                            }}
+                        >
+                            <Text style={styles.menuCancelText}>Cancel</Text>
+                        </Pressable>
+                    </Pressable>
+                </Pressable>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -1267,11 +1775,43 @@ const styles = StyleSheet.create({
     commentBubble: {
         alignSelf: "flex-start",
         maxWidth: "100%",
+        minWidth: 100,
         backgroundColor: COLORS.surfaceAlt,
         borderRadius: 16,
         paddingHorizontal: 12,
         paddingTop: 8,
         paddingBottom: 9,
+    },
+
+    commentAuthorRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        minHeight: 20,
+    },
+
+    commentAuthor: {
+        flexShrink: 1,
+        color: COLORS.text,
+        fontSize: 13,
+        lineHeight: 17,
+        fontWeight: "800",
+    },
+
+    commentMenuButton: {
+        width: 30,
+        height: 26,
+        marginLeft: "auto",
+        paddingLeft: 6,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    commentText: {
+        color: COLORS.text,
+        fontSize: 13,
+        lineHeight: 19,
+        fontWeight: "500",
+        marginTop: 2,
     },
 
     commentActionsRow: {
@@ -1283,26 +1823,11 @@ const styles = StyleSheet.create({
         paddingTop: 3,
     },
 
-    commentAuthor: {
-        color: COLORS.text,
-        fontSize: 13,
-        lineHeight: 17,
-        fontWeight: "800",
-    },
-
     commentTime: {
         color: COLORS.textMuted,
         fontSize: 11,
         lineHeight: 15,
         fontWeight: "600",
-    },
-
-    commentText: {
-        color: COLORS.text,
-        fontSize: 13,
-        lineHeight: 19,
-        fontWeight: "500",
-        marginTop: 2,
     },
 
     commentLikeAction: {
@@ -1333,6 +1858,70 @@ const styles = StyleSheet.create({
         fontSize: 10,
         lineHeight: 13,
         fontWeight: "800",
+    },
+
+    editCommentContainer: {
+        marginTop: 5,
+        minWidth: 220,
+        maxWidth: "100%",
+    },
+
+    editCommentInput: {
+        minHeight: 42,
+        maxHeight: 120,
+        borderRadius: 12,
+        backgroundColor: "#FFFFFF",
+        borderWidth: 1,
+        borderColor: "#DDE6E2",
+        paddingHorizontal: 10,
+        paddingTop: 9,
+        paddingBottom: 9,
+        color: COLORS.text,
+        fontSize: 13,
+        lineHeight: 19,
+        fontWeight: "500",
+    },
+
+    editActionsRow: {
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 7,
+    },
+
+    editCancelButton: {
+        minHeight: 32,
+        paddingHorizontal: 11,
+        borderRadius: 16,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    editCancelText: {
+        color: COLORS.textSecondary,
+        fontSize: 12,
+        fontWeight: "800",
+    },
+
+    editSaveButton: {
+        minWidth: 58,
+        height: 32,
+        borderRadius: 16,
+        paddingHorizontal: 13,
+        backgroundColor: COLORS.primary,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    editSaveButtonDisabled: {
+        opacity: 0.4,
+    },
+
+    editSaveText: {
+        color: COLORS.white,
+        fontSize: 12,
+        fontWeight: "900",
     },
 
     composerContainer: {
@@ -1401,5 +1990,85 @@ const styles = StyleSheet.create({
 
     sendButtonDisabled: {
         opacity: 0.35,
+    },
+    menuOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0, 0, 0, 0.35)",
+        justifyContent: "flex-end",
+    },
+
+    commentMenuSheet: {
+        width: "100%",
+        maxWidth: 600,
+        alignSelf: "center",
+        backgroundColor: "#FFFFFF",
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingTop: 9,
+        paddingHorizontal: 16,
+        paddingBottom: Platform.OS === "ios" ? 30 : 18,
+    },
+
+    menuHandle: {
+        width: 38,
+        height: 4,
+        borderRadius: 2,
+        backgroundColor: "#D5DCDA",
+        alignSelf: "center",
+        marginBottom: 15,
+    },
+
+    menuTitle: {
+        color: COLORS.text,
+        fontSize: 15,
+        fontWeight: "900",
+        marginBottom: 8,
+    },
+
+    menuOption: {
+        minHeight: 54,
+        flexDirection: "row",
+        alignItems: "center",
+        borderRadius: 14,
+        paddingHorizontal: 8,
+    },
+
+    menuOptionPressed: {
+        backgroundColor: COLORS.surfaceAlt,
+    },
+
+    menuOptionIcon: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: COLORS.surfaceAlt,
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: 11,
+    },
+
+    menuOptionText: {
+        color: COLORS.text,
+        fontSize: 14,
+        fontWeight: "800",
+    },
+
+    menuDeleteText: {
+        color: COLORS.danger,
+    },
+
+    menuCancelButton: {
+        minHeight: 48,
+        marginTop: 7,
+        borderRadius: 14,
+        backgroundColor: COLORS.surfaceAlt,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+
+    menuCancelText: {
+        color: COLORS.text,
+        fontSize: 14,
+        fontWeight: "800",
     },
 });

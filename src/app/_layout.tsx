@@ -3,11 +3,14 @@ import Head from "expo-router/head";
 import { StatusBar } from "expo-status-bar";
 import { Platform } from "react-native";
 
+import { ThemeProvider, useTheme } from "../context/ThemeContext";
 import { LanguageProvider } from "../i18n/LanguageContext";
 
-export default function RootLayout() {
+function RootNavigator() {
+  const { colors, isDark } = useTheme();
+
   return (
-    <LanguageProvider>
+    <>
       {/* Web-only SEO metadata.
           Prevents expo-router/head from running on iOS/Android. */}
       {Platform.OS === "web" && (
@@ -42,13 +45,13 @@ export default function RootLayout() {
         </Head>
       )}
 
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       <Stack
         screenOptions={{
           headerShown: false,
           contentStyle: {
-            backgroundColor: "#F7F8FA",
+            backgroundColor: colors.background,
           },
         }}
       >
@@ -61,6 +64,16 @@ export default function RootLayout() {
         <Stack.Screen name="admin/edit-game" />
         <Stack.Screen name="admin/manage-games" />
       </Stack>
-    </LanguageProvider>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <LanguageProvider>
+        <RootNavigator />
+      </LanguageProvider>
+    </ThemeProvider>
   );
 }

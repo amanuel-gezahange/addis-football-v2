@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -14,7 +14,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { COLORS } from "../../constants/colors";
+import { AppColors } from "../../constants/colors";
+import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { supabase } from "../../lib/supabase";
 
@@ -25,19 +26,37 @@ type ProfileCache = {
   avatarUrl: string | null;
 };
 
+type ConversationSummaryRow = {
+  unread_count: number | null;
+};
+
 const profileCache: Record<string, ProfileCache> = {};
+const unreadMessagesCache: Record<string, number> = {};
 
 export default function ProfileScreen() {
   const { width } = useWindowDimensions();
-  const isDesktopWeb = Platform.OS === "web" && width >= 900;
+
+  const { colors, isDark, toggleTheme } = useTheme();
+
+  const styles = useMemo(
+    () => createStyles(colors),
+    [colors],
+  );
+
+  const isDesktopWeb =
+    Platform.OS === "web" && width >= 900;
+
+  const isSmallPhone = width < 380;
 
   const [fullName, setFullName] = useState("");
-
   const [skillLevel, setSkillLevel] = useState("");
-
   const [role, setRole] = useState("player");
 
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] =
+    useState<string | null>(null);
+
+  const [unreadMessages, setUnreadMessages] =
+    useState(0);
 
   const [loading, setLoading] = useState(true);
 
@@ -46,6 +65,7 @@ export default function ProfileScreen() {
   useFocusEffect(
     useCallback(() => {
       void loadProfile();
+      void loadUnreadMessages();
     }, []),
   );
 
@@ -58,11 +78,13 @@ export default function ProfileScreen() {
 
     if (!user) {
       console.log("Profile user error: No user");
+
       setFullName("");
       setSkillLevel("");
       setRole("player");
       setAvatarUrl(null);
       setLoading(false);
+
       return;
     }
 
@@ -80,12 +102,18 @@ export default function ProfileScreen() {
 
     const { data, error } = await supabase
       .from("profiles")
-      .select("full_name, skill_level, role, avatar_url")
+      .select(
+        "full_name, skill_level, role, avatar_url",
+      )
       .eq("id", user.id)
       .maybeSingle();
 
     if (error) {
-      console.log("Profile error:", error.message);
+      console.log(
+        "Profile error:",
+        error.message,
+      );
+
       setLoading(false);
       return;
     }
@@ -109,7 +137,58 @@ export default function ProfileScreen() {
     setLoading(false);
   }
 
-  const canManageGames = role === "admin" || role === "organizer";
+  async function loadUnreadMessages() {
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      setUnreadMessages(0);
+      return;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        unreadMessagesCache,
+        user.id,
+      )
+    ) {
+      setUnreadMessages(
+        unreadMessagesCache[user.id],
+      );
+    }
+
+    const { data, error } = await supabase.rpc(
+      "get_community_conversation_summaries",
+    );
+
+    if (error) {
+      console.log(
+        "Profile unread messages error:",
+        error.message,
+      );
+
+      return;
+    }
+
+    const rows =
+      (data ?? []) as ConversationSummaryRow[];
+
+    const nextUnreadCount = rows.reduce(
+      (total, row) =>
+        total + Number(row.unread_count ?? 0),
+      0,
+    );
+
+    unreadMessagesCache[user.id] =
+      nextUnreadCount;
+
+    setUnreadMessages(nextUnreadCount);
+  }
+
+  const canManageGames =
+    role === "admin" || role === "organizer";
 
   function skillLabel(level: string) {
     if (level === "Beginner") {
@@ -147,31 +226,84 @@ export default function ProfileScreen() {
     return t("profile.footballPlayer");
   }
 
+  function unreadMessagesLabel() {
+    if (unreadMessages <= 0) {
+      return "Your conversations";
+    }
+
+    if (unreadMessages === 1) {
+      return "1 unread message";
+    }
+
+    return `${unreadMessages} unread messages`;
+  }
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      <SafeAreaView
+        style={styles.safeArea}
+        edges={["top"]}
+      >
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ActivityIndicator
+            size="large"
+            color={colors.primary}
+          />
 
-          <Text style={styles.loadingText}>{t("common.loading")}</Text>
+          <Text style={styles.loadingText}>
+            {t("common.loading")}
+          </Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+    <SafeAreaView
+      style={styles.safeArea}
+      edges={["top"]}
+    >
       <ScrollView
         style={styles.container}
         contentContainerStyle={[
           styles.content,
-          isDesktopWeb && styles.contentDesktop,
+          isDesktopWeb &&
+            styles.contentDesktop,
         ]}
         showsVerticalScrollIndicator={false}
       >
         {/* HEADER */}
         <View style={styles.pageHeader}>
-          <Text style={styles.title}>{t("profile.title")}</Text>
+          <Text style={styles.title}>
+            {t("profile.title")}
+          </Text>
+
+          <Pressable
+            onPress={() => {
+              void toggleTheme();
+            }}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isDark
+                ? "Switch to light mode"
+                : "Switch to dark mode"
+            }
+            style={({ pressed }) => [
+              styles.themeButton,
+              pressed && styles.rowPressed,
+            ]}
+          >
+            <Ionicons
+              name={
+                isDark
+                  ? "sunny-outline"
+                  : "moon-outline"
+              }
+              size={20}
+              color={colors.text}
+            />
+          </Pressable>
         </View>
 
         {/* PLAYER IDENTITY */}
@@ -179,22 +311,167 @@ export default function ProfileScreen() {
           <View style={styles.avatarWrap}>
             <View style={styles.avatar}>
               {avatarUrl ? (
-                <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={styles.avatarImage}
+                />
               ) : (
-                <Ionicons name="person" size={45} color={COLORS.primary} />
+                <Ionicons
+                  name="person"
+                  size={45}
+                  color={colors.primary}
+                />
               )}
             </View>
 
             <View style={styles.avatarBadge}>
-              <Ionicons name="football" size={14} color={COLORS.white} />
+              <Ionicons
+                name="football"
+                size={14}
+                color={colors.white}
+              />
             </View>
           </View>
 
-          <Text style={styles.playerName} numberOfLines={1}>
+          <Text
+            style={styles.playerName}
+            numberOfLines={1}
+          >
             {displayName()}
           </Text>
 
-          <Text style={styles.playerRole}>{profileRoleLabel()}</Text>
+          <Text style={styles.playerRole}>
+            {profileRoleLabel()}
+          </Text>
+        </View>
+
+        {/* SOCIAL SHORTCUTS */}
+        <View
+          style={[
+            styles.socialShortcuts,
+            isSmallPhone &&
+              styles.socialShortcutsSmall,
+          ]}
+        >
+          {/* MESSAGES */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.socialShortcutCard,
+              unreadMessages > 0 &&
+                styles.socialShortcutCardUnread,
+              pressed && styles.rowPressed,
+            ]}
+            onPress={() =>
+              router.push("/messages")
+            }
+          >
+            <View
+              style={styles.socialShortcutTop}
+            >
+              <View
+                style={styles.socialShortcutIcon}
+              >
+                <Ionicons
+                  name="chatbubble-ellipses-outline"
+                  size={25}
+                  color={colors.primary}
+                />
+              </View>
+
+              <View
+                style={styles.messageTopRight}
+              >
+                {unreadMessages > 0 && (
+                  <View
+                    style={
+                      styles.unreadMessagesBadge
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.unreadMessagesBadgeText
+                      }
+                    >
+                      {unreadMessages > 99
+                        ? "99+"
+                        : unreadMessages}
+                    </Text>
+                  </View>
+                )}
+
+                <Ionicons
+                  name="chevron-forward"
+                  size={19}
+                  color={colors.textSecondary}
+                />
+              </View>
+            </View>
+
+            <Text
+              style={[
+                styles.socialShortcutTitle,
+                unreadMessages > 0 &&
+                  styles.socialShortcutTitleUnread,
+              ]}
+            >
+              Messages
+            </Text>
+
+            <Text
+              style={[
+                styles.socialShortcutSubtitle,
+                unreadMessages > 0 &&
+                  styles.socialShortcutSubtitleUnread,
+              ]}
+            >
+              {unreadMessagesLabel()}
+            </Text>
+          </Pressable>
+
+          {/* COMMUNITIES */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.socialShortcutCard,
+              pressed && styles.rowPressed,
+            ]}
+            onPress={() =>
+              router.push("/communities")
+            }
+          >
+            <View
+              style={styles.socialShortcutTop}
+            >
+              <View
+                style={styles.socialShortcutIcon}
+              >
+                <Ionicons
+                  name="people-outline"
+                  size={27}
+                  color={colors.primary}
+                />
+              </View>
+
+              <Ionicons
+                name="chevron-forward"
+                size={19}
+                color={colors.textSecondary}
+              />
+            </View>
+
+            <Text
+              style={styles.socialShortcutTitle}
+            >
+              Communities
+            </Text>
+
+            <Text
+              style={
+                styles.socialShortcutSubtitle
+              }
+            >
+              Groups and posts
+            </Text>
+          </Pressable>
         </View>
 
         {/* SKILL LEVEL */}
@@ -203,22 +480,30 @@ export default function ProfileScreen() {
             styles.skillCard,
             pressed && styles.rowPressed,
           ]}
-          onPress={() => router.push("/edit-profile")}
+          onPress={() =>
+            router.push("/edit-profile")
+          }
         >
           <View style={styles.rowLeft}>
             <View style={styles.rowIcon}>
               <Ionicons
                 name="stats-chart-outline"
                 size={20}
-                color={COLORS.primary}
+                color={colors.primary}
               />
             </View>
 
             <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>{t("profile.skillLevel")}</Text>
+              <Text style={styles.rowTitle}>
+                {t("profile.skillLevel")}
+              </Text>
 
-              <Text style={styles.rowSubtitle}>
-                {skillLevel ? skillLabel(skillLevel) : t("profile.notSet")}
+              <Text
+                style={styles.rowSubtitle}
+              >
+                {skillLevel
+                  ? skillLabel(skillLevel)
+                  : t("profile.notSet")}
               </Text>
             </View>
           </View>
@@ -226,7 +511,7 @@ export default function ProfileScreen() {
           <Ionicons
             name="chevron-forward"
             size={20}
-            color={COLORS.textSecondary}
+            color={colors.textSecondary}
           />
         </Pressable>
 
@@ -235,7 +520,11 @@ export default function ProfileScreen() {
           <MenuRow
             icon="person-outline"
             title={t("profile.editProfile")}
-            onPress={() => router.push("/edit-profile")}
+            onPress={() =>
+              router.push("/edit-profile")
+            }
+            colors={colors}
+            styles={styles}
           />
 
           <View style={styles.rowDivider} />
@@ -243,14 +532,20 @@ export default function ProfileScreen() {
           <MenuRow
             icon="settings-outline"
             title={t("profile.settings")}
-            onPress={() => router.push("/settings")}
+            onPress={() =>
+              router.push("/settings")
+            }
+            colors={colors}
+            styles={styles}
           />
         </View>
 
         {/* ADMIN / ORGANIZER TOOLS */}
         {canManageGames && (
           <>
-            <Text style={styles.sectionTitle}>{t("profile.adminTools")}</Text>
+            <Text style={styles.sectionTitle}>
+              {t("profile.adminTools")}
+            </Text>
 
             <View style={styles.adminSection}>
               <View style={styles.adminHeader}>
@@ -258,46 +553,90 @@ export default function ProfileScreen() {
                   <Ionicons
                     name="shield-checkmark"
                     size={20}
-                    color={COLORS.primary}
+                    color={colors.primary}
                   />
                 </View>
 
                 <View style={styles.rowText}>
-                  <Text style={styles.adminTitle}>
+                  <Text
+                    style={styles.adminTitle}
+                  >
                     {t("profile.adminTools")}
                   </Text>
 
-                  <Text style={styles.adminSubtitle}>
-                    {t("profile.adminToolsSubtitle")}
+                  <Text
+                    style={
+                      styles.adminSubtitle
+                    }
+                  >
+                    {t(
+                      "profile.adminToolsSubtitle",
+                    )}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.rowDivider} />
+              <View
+                style={styles.rowDivider}
+              />
 
               <AdminRow
                 icon="add-circle-outline"
-                title={t("profile.createGame")}
-                subtitle={t("profile.createGameSubtitle")}
-                onPress={() => router.push("/admin/create-game")}
+                title={t(
+                  "profile.createGame",
+                )}
+                subtitle={t(
+                  "profile.createGameSubtitle",
+                )}
+                onPress={() =>
+                  router.push(
+                    "/admin/create-game",
+                  )
+                }
+                colors={colors}
+                styles={styles}
               />
 
-              <View style={styles.rowDivider} />
+              <View
+                style={styles.rowDivider}
+              />
 
               <AdminRow
                 icon="settings-outline"
-                title={t("profile.manageGames")}
-                subtitle={t("profile.manageGamesSubtitle")}
-                onPress={() => router.push("/admin/manage-games")}
+                title={t(
+                  "profile.manageGames",
+                )}
+                subtitle={t(
+                  "profile.manageGamesSubtitle",
+                )}
+                onPress={() =>
+                  router.push(
+                    "/admin/manage-games",
+                  )
+                }
+                colors={colors}
+                styles={styles}
               />
 
-              <View style={styles.rowDivider} />
+              <View
+                style={styles.rowDivider}
+              />
 
               <AdminRow
                 icon="card-outline"
-                title={t("profile.paymentRequests")}
-                subtitle={t("profile.paymentRequestsSubtitle")}
-                onPress={() => router.push("/admin/payment-requests")}
+                title={t(
+                  "profile.paymentRequests",
+                )}
+                subtitle={t(
+                  "profile.paymentRequestsSubtitle",
+                )}
+                onPress={() =>
+                  router.push(
+                    "/admin/payment-requests",
+                  )
+                }
+                colors={colors}
+                styles={styles}
               />
             </View>
           </>
@@ -309,39 +648,78 @@ export default function ProfileScreen() {
   );
 }
 
+type ProfileStyles = ReturnType<
+  typeof createStyles
+>;
+
 type MenuRowProps = {
-  icon: "person-outline" | "settings-outline";
+  icon:
+    | "person-outline"
+    | "settings-outline";
   title: string;
   onPress: () => void;
+  colors: AppColors;
+  styles: ProfileStyles;
 };
 
-function MenuRow({ icon, title, onPress }: MenuRowProps) {
+function MenuRow({
+  icon,
+  title,
+  onPress,
+  colors,
+  styles,
+}: MenuRowProps) {
   return (
     <Pressable
-      style={({ pressed }) => [styles.menuRow, pressed && styles.rowPressed]}
+      style={({ pressed }) => [
+        styles.menuRow,
+        pressed && styles.rowPressed,
+      ]}
       onPress={onPress}
     >
       <View style={styles.rowLeft}>
         <View style={styles.rowIcon}>
-          <Ionicons name={icon} size={20} color={COLORS.primary} />
+          <Ionicons
+            name={icon}
+            size={20}
+            color={colors.primary}
+          />
         </View>
 
-        <Text style={styles.menuRowTitle}>{title}</Text>
+        <Text style={styles.menuRowTitle}>
+          {title}
+        </Text>
       </View>
 
-      <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+      <Ionicons
+        name="chevron-forward"
+        size={20}
+        color={colors.textSecondary}
+      />
     </Pressable>
   );
 }
 
 type AdminRowProps = {
-  icon: "add-circle-outline" | "settings-outline" | "card-outline";
+  icon:
+    | "add-circle-outline"
+    | "settings-outline"
+    | "card-outline";
   title: string;
   subtitle: string;
   onPress: () => void;
+  colors: AppColors;
+  styles: ProfileStyles;
 };
 
-function AdminRow({ icon, title, subtitle, onPress }: AdminRowProps) {
+function AdminRow({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  colors,
+  styles,
+}: AdminRowProps) {
   return (
     <Pressable
       style={({ pressed }) => [
@@ -351,277 +729,398 @@ function AdminRow({ icon, title, subtitle, onPress }: AdminRowProps) {
       onPress={onPress}
     >
       <View style={styles.rowIcon}>
-        <Ionicons name={icon} size={20} color={COLORS.primary} />
+        <Ionicons
+          name={icon}
+          size={20}
+          color={colors.primary}
+        />
       </View>
 
       <View style={styles.rowText}>
-        <Text style={styles.adminButtonTitle}>{title}</Text>
+        <Text
+          style={styles.adminButtonTitle}
+        >
+          {title}
+        </Text>
 
-        <Text style={styles.adminButtonSubtitle}>{subtitle}</Text>
+        <Text
+          style={
+            styles.adminButtonSubtitle
+          }
+        >
+          {subtitle}
+        </Text>
       </View>
 
-      <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
+      <Ionicons
+        name="chevron-forward"
+        size={20}
+        color={colors.textSecondary}
+      />
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
+const createStyles = (colors: AppColors) =>
+  StyleSheet.create({
+    /* SOCIAL SHORTCUTS */
 
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
+    socialShortcuts: {
+      flexDirection: "row",
+      gap: 12,
+      marginBottom: 14,
+    },
 
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
-  },
+    socialShortcutsSmall: {
+      flexDirection: "column",
+    },
 
-  contentDesktop: {
-    width: "100%",
-    maxWidth: 680,
-    alignSelf: "center",
-    paddingHorizontal: 28,
-    paddingTop: 24,
-  },
+    socialShortcutCard: {
+      flex: 1,
+      minWidth: 0,
+      minHeight: 126,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: 15,
+    },
 
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+    socialShortcutCardUnread: {
+      borderColor: colors.primary,
+    },
 
-  loadingText: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-    marginTop: 12,
-  },
+    socialShortcutTop: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 14,
+    },
 
-  /* HEADER */
+    socialShortcutIcon: {
+      width: 42,
+      height: 42,
+      borderRadius: 14,
+      backgroundColor: colors.surfaceAlt,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  pageHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+    messageTopRight: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 7,
+    },
 
-  title: {
-    color: COLORS.text,
-    fontSize: 32,
-    fontWeight: "900",
-    letterSpacing: -0.8,
-  },
+    unreadMessagesBadge: {
+      minWidth: 22,
+      height: 22,
+      borderRadius: 11,
+      paddingHorizontal: 6,
+      backgroundColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  /* PLAYER */
+    unreadMessagesBadgeText: {
+      color: colors.white,
+      fontSize: 10,
+      lineHeight: 13,
+      fontWeight: "900",
+    },
 
-  profileIdentity: {
-    alignItems: "center",
-    paddingTop: 24,
-    paddingBottom: 22,
-  },
+    socialShortcutTitle: {
+      color: colors.text,
+      fontSize: 16,
+      fontWeight: "800",
+    },
 
-  avatarWrap: {
-    position: "relative",
-  },
+    socialShortcutTitleUnread: {
+      fontWeight: "900",
+    },
 
-  avatar: {
-    width: 92,
-    height: 92,
-    borderRadius: 46,
-    backgroundColor: COLORS.surfaceAlt,
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
+    socialShortcutSubtitle: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 4,
+    },
 
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-  },
+    socialShortcutSubtitleUnread: {
+      color: colors.primary,
+      fontWeight: "700",
+    },
 
-  avatarBadge: {
-    position: "absolute",
-    right: -1,
-    bottom: 2,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: COLORS.primary,
-    borderWidth: 3,
-    borderColor: COLORS.background,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+    /* PAGE */
 
-  playerName: {
-    maxWidth: "90%",
-    color: COLORS.text,
-    fontSize: 24,
-    lineHeight: 29,
-    fontWeight: "900",
-    letterSpacing: -0.45,
-    textAlign: "center",
-    marginTop: 13,
-  },
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
 
-  playerRole: {
-    color: COLORS.primary,
-    fontSize: 13,
-    fontWeight: "700",
-    marginTop: 3,
-  },
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
 
-  /* COMMON ROWS */
+    content: {
+      paddingHorizontal: 20,
+      paddingTop: 14,
+    },
 
-  skillCard: {
-    minHeight: 72,
-    borderRadius: 18,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 15,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
+    contentDesktop: {
+      width: "100%",
+      maxWidth: 680,
+      alignSelf: "center",
+      paddingHorizontal: 28,
+      paddingTop: 24,
+    },
 
-  rowLeft: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
+    loadingContainer: {
+      flex: 1,
+      backgroundColor: colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  rowText: {
-    flex: 1,
-    minWidth: 0,
-  },
+    loadingText: {
+      color: colors.textSecondary,
+      fontSize: 14,
+      marginTop: 12,
+    },
 
-  rowIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: COLORS.surfaceAlt,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+    /* HEADER */
 
-  rowTitle: {
-    color: COLORS.text,
-    fontSize: 15,
-    fontWeight: "800",
-  },
+    pageHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
 
-  rowSubtitle: {
-    color: COLORS.textSecondary,
-    fontSize: 13,
-    fontWeight: "600",
-    marginTop: 3,
-  },
+    title: {
+      color: colors.text,
+      fontSize: 32,
+      fontWeight: "900",
+      letterSpacing: -0.8,
+    },
 
-  rowDivider: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: COLORS.border,
-    marginLeft: 50,
-  },
+    themeButton: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
 
-  rowPressed: {
-    opacity: 0.7,
-  },
+    /* PLAYER */
 
-  /* MENU */
+    profileIdentity: {
+      alignItems: "center",
+      paddingTop: 24,
+      paddingBottom: 22,
+    },
 
-  menuCard: {
-    marginTop: 14,
-    borderRadius: 18,
-    overflow: "hidden",
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 15,
-  },
+    avatarWrap: {
+      position: "relative",
+    },
 
-  menuRow: {
-    minHeight: 62,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
+    avatar: {
+      width: 92,
+      height: 92,
+      borderRadius: 46,
+      backgroundColor: colors.surfaceAlt,
+      borderWidth: 2,
+      borderColor: colors.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
 
-  menuRowTitle: {
-    color: COLORS.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
+    avatarImage: {
+      width: "100%",
+      height: "100%",
+    },
 
-  /* ADMIN */
+    avatarBadge: {
+      position: "absolute",
+      right: -1,
+      bottom: 2,
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      backgroundColor: colors.primary,
+      borderWidth: 3,
+      borderColor: colors.background,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  sectionTitle: {
-    color: COLORS.text,
-    fontSize: 18,
-    fontWeight: "900",
-    letterSpacing: -0.25,
-    marginTop: 24,
-    marginBottom: 10,
-  },
+    playerName: {
+      maxWidth: "90%",
+      color: colors.text,
+      fontSize: 24,
+      lineHeight: 29,
+      fontWeight: "900",
+      letterSpacing: -0.45,
+      textAlign: "center",
+      marginTop: 13,
+    },
 
-  adminSection: {
-    borderRadius: 18,
-    overflow: "hidden",
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 15,
-  },
+    playerRole: {
+      color: colors.primary,
+      fontSize: 13,
+      fontWeight: "700",
+      marginTop: 3,
+    },
 
-  adminHeader: {
-    minHeight: 68,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
+    /* COMMON ROWS */
 
-  adminTitle: {
-    color: COLORS.text,
-    fontSize: 15,
-    fontWeight: "800",
-  },
+    skillCard: {
+      minHeight: 72,
+      borderRadius: 18,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 15,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
 
-  adminSubtitle: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
-  },
+    rowLeft: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
 
-  adminButton: {
-    minHeight: 68,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 9,
-  },
+    rowText: {
+      flex: 1,
+      minWidth: 0,
+    },
 
-  adminButtonTitle: {
-    color: COLORS.text,
-    fontSize: 14,
-    fontWeight: "800",
-  },
+    rowIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor: colors.surfaceAlt,
+      alignItems: "center",
+      justifyContent: "center",
+    },
 
-  adminButtonSubtitle: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
-  },
+    rowTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: "800",
+    },
 
-  bottomSpace: {
-    height: 30,
-  },
-});
+    rowSubtitle: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      fontWeight: "600",
+      marginTop: 3,
+    },
+
+    rowDivider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: colors.border,
+      marginLeft: 50,
+    },
+
+    rowPressed: {
+      opacity: 0.7,
+    },
+
+    /* MENU */
+
+    menuCard: {
+      marginTop: 14,
+      borderRadius: 18,
+      overflow: "hidden",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 15,
+    },
+
+    menuRow: {
+      minHeight: 62,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+
+    menuRowTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+
+    /* ADMIN */
+
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 18,
+      fontWeight: "900",
+      letterSpacing: -0.25,
+      marginTop: 24,
+      marginBottom: 10,
+    },
+
+    adminSection: {
+      borderRadius: 18,
+      overflow: "hidden",
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: 15,
+    },
+
+    adminHeader: {
+      minHeight: 68,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+
+    adminTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: "800",
+    },
+
+    adminSubtitle: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 3,
+    },
+
+    adminButton: {
+      minHeight: 68,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingVertical: 9,
+    },
+
+    adminButtonTitle: {
+      color: colors.text,
+      fontSize: 14,
+      fontWeight: "800",
+    },
+
+    adminButtonSubtitle: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 3,
+    },
+
+    bottomSpace: {
+      height: 30,
+    },
+  });

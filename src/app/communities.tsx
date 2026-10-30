@@ -17,8 +17,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { COLORS } from "../../constants/colors";
-import { supabase } from "../../lib/supabase";
+import { COLORS } from "../constants/colors";
+import { supabase } from "../lib/supabase";
 
 type CommunitySection = "posts" | "groups";
 
@@ -1595,9 +1595,25 @@ export default function CommunitiesScreen() {
 
     return (
         <SafeAreaView edges={["top"]} style={styles.screen}>
-            {/* HEADER */}
             <View style={styles.header}>
+                <Pressable
+                    style={({ pressed }) => [
+                        styles.headerBackButton,
+                        pressed && styles.pressed,
+                    ]}
+                    onPress={() => router.back()}
+                    hitSlop={10}
+                >
+                    <Ionicons
+                        name="chevron-back"
+                        size={26}
+                        color={COLORS.text}
+                    />
+                </Pressable>
+
                 <Text style={styles.headerTitle}>Communities</Text>
+
+                <View style={styles.headerRightSpacer} />
             </View>
 
             <ScrollView
@@ -2044,8 +2060,6 @@ export default function CommunitiesScreen() {
                                                 </Text>
                                             </Pressable>
                                         </View>
-
-
                                     </View>
                                 );
                             })
@@ -2864,26 +2878,33 @@ const styles = StyleSheet.create({
     pressed: {
         opacity: 0.65,
     },
-
     header: {
-        width: "100%",
-        maxWidth: 680,
-        alignSelf: "center",
-        height: 58,
-        paddingHorizontal: 18,
+        height: 64,
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "space-between",
+        paddingHorizontal: 16,
+        backgroundColor: COLORS.background,
+    },
+
+    headerBackButton: {
+        width: 44,
+        height: 44,
+        alignItems: "center",
+        justifyContent: "center",
     },
 
     headerTitle: {
-        color: "#14201B",
-        fontSize: 25,
-        lineHeight: 30,
+        flex: 1,
+        color: COLORS.text,
+        fontSize: 22,
         fontWeight: "900",
-        letterSpacing: -0.5,
+        textAlign: "center",
     },
 
+    headerRightSpacer: {
+        width: 44,
+        height: 44,
+    },
     groupTopRow: {
         flexDirection: "row",
         alignItems: "center",
@@ -2909,6 +2930,14 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         backgroundColor: COLORS.surfaceAlt,
         marginRight: 6,
+    },
+    backButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: 4,
     },
 
     groupActivityAvatarFallback: {

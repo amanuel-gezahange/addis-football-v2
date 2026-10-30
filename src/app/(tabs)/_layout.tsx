@@ -9,34 +9,72 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { COLORS } from "../../constants/colors";
+import { useTheme } from "../../context/ThemeContext";
 import { useLanguage } from "../../i18n/LanguageContext";
 
 export default function TabLayout() {
   const { t } = useLanguage();
+  const { colors } = useTheme();
+
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
 
-  const isDesktopWeb = Platform.OS === "web" && width >= 900;
+  const isDesktopWeb =
+    Platform.OS === "web" && width >= 900;
 
-  const bottomInset = Platform.OS === "web" ? 0 : insets.bottom;
+  const bottomInset =
+    Platform.OS === "web" ? 0 : insets.bottom;
 
   return (
-    <View style={styles.root}>
+    <View
+      style={[
+        styles.root,
+        {
+          backgroundColor: colors.background,
+        },
+      ]}
+    >
       {/* Desktop web branding */}
       {isDesktopWeb && (
         <View style={styles.brand}>
-          <View style={styles.brandIcon}>
+          <View
+            style={[
+              styles.brandIcon,
+              {
+                backgroundColor:
+                  colors.primary,
+              },
+            ]}
+          >
             <Ionicons
               name="football"
               size={25}
-              color="#F7F8FA"
+              color={colors.white}
             />
           </View>
 
           <View>
-            <Text style={styles.brandTitle}>ADDIS</Text>
-            <Text style={styles.brandTitle}>FOOTBALL</Text>
+            <Text
+              style={[
+                styles.brandTitle,
+                {
+                  color: colors.text,
+                },
+              ]}
+            >
+              ADDIS
+            </Text>
+
+            <Text
+              style={[
+                styles.brandTitle,
+                {
+                  color: colors.text,
+                },
+              ]}
+            >
+              FOOTBALL
+            </Text>
           </View>
         </View>
       )}
@@ -45,16 +83,23 @@ export default function TabLayout() {
         screenOptions={{
           headerShown: false,
 
-          tabBarActiveTintColor: COLORS.primary,
-          tabBarInactiveTintColor: "#66766F",
+          tabBarActiveTintColor:
+            colors.primary,
 
-          tabBarPosition: isDesktopWeb ? "left" : "bottom",
+          tabBarInactiveTintColor:
+            colors.textSecondary,
+
+          tabBarPosition: isDesktopWeb
+            ? "left"
+            : "bottom",
 
           tabBarStyle: isDesktopWeb
             ? {
-                backgroundColor: "#F7F8FA",
+                backgroundColor:
+                  colors.background,
 
-                borderRightColor: "#DDE6E2",
+                borderRightColor:
+                  colors.border,
                 borderRightWidth: 1,
                 borderTopWidth: 0,
 
@@ -64,18 +109,25 @@ export default function TabLayout() {
                 paddingHorizontal: 14,
               }
             : {
-                backgroundColor: "#F7F8FA",
+                backgroundColor:
+                  colors.background,
 
-                borderTopColor: "#DDE6E2",
-                borderTopWidth: StyleSheet.hairlineWidth,
+                borderTopColor:
+                  colors.border,
+                borderTopWidth:
+                  StyleSheet.hairlineWidth,
 
                 height: 72 + bottomInset,
 
                 paddingTop: 8,
+
                 paddingBottom:
                   Platform.OS === "web"
                     ? 8
-                    : Math.max(bottomInset, 6),
+                    : Math.max(
+                        bottomInset,
+                        6,
+                      ),
 
                 elevation: 0,
                 shadowColor: "transparent",
@@ -117,7 +169,8 @@ export default function TabLayout() {
               },
 
           sceneStyle: {
-            backgroundColor: "#F7F8FA",
+            backgroundColor:
+              colors.background,
           },
         }}
       >
@@ -127,9 +180,16 @@ export default function TabLayout() {
           options={{
             title: t("tabs.games"),
 
-            tabBarIcon: ({ color, focused }) => (
+            tabBarIcon: ({
+              color,
+              focused,
+            }) => (
               <Ionicons
-                name={focused ? "football" : "football-outline"}
+                name={
+                  focused
+                    ? "football"
+                    : "football-outline"
+                }
                 size={23}
                 color={color}
               />
@@ -143,45 +203,16 @@ export default function TabLayout() {
           options={{
             title: t("tabs.bookings"),
 
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={focused ? "calendar" : "calendar-outline"}
-                size={23}
-                color={color}
-              />
-            ),
-          }}
-        />
-
-        {/* MESSAGES */}
-        <Tabs.Screen
-          name="messages"
-          options={{
-            title: "Messages",
-
-            tabBarIcon: ({ color, focused }) => (
+            tabBarIcon: ({
+              color,
+              focused,
+            }) => (
               <Ionicons
                 name={
                   focused
-                    ? "chatbubble-ellipses"
-                    : "chatbubble-ellipses-outline"
+                    ? "calendar"
+                    : "calendar-outline"
                 }
-                size={23}
-                color={color}
-              />
-            ),
-          }}
-        />
-
-        {/* COMMUNITIES */}
-        <Tabs.Screen
-          name="communities"
-          options={{
-            title: "Communities",
-
-            tabBarIcon: ({ color, focused }) => (
-              <Ionicons
-                name={focused ? "people" : "people-outline"}
                 size={23}
                 color={color}
               />
@@ -195,9 +226,16 @@ export default function TabLayout() {
           options={{
             title: t("tabs.profile"),
 
-            tabBarIcon: ({ color, focused }) => (
+            tabBarIcon: ({
+              color,
+              focused,
+            }) => (
               <Ionicons
-                name={focused ? "person" : "person-outline"}
+                name={
+                  focused
+                    ? "person"
+                    : "person-outline"
+                }
                 size={23}
                 color={color}
               />
@@ -205,7 +243,7 @@ export default function TabLayout() {
           }}
         />
 
-        {/* Keep Friends route, but hide it from the tab bar */}
+        {/* Keep Friends route, but hide it */}
         <Tabs.Screen
           name="friends"
           options={{
@@ -220,7 +258,6 @@ export default function TabLayout() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: "#F7F8FA",
   },
 
   brand: {
@@ -239,14 +276,11 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 13,
 
-    backgroundColor: COLORS.primary,
-
     alignItems: "center",
     justifyContent: "center",
   },
 
   brandTitle: {
-    color: "#14201B",
     fontSize: 15,
     fontWeight: "900",
     lineHeight: 16,

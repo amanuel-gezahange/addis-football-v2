@@ -15,6 +15,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -36,6 +37,27 @@ const TERMS_URL = "YOUR_TERMS_URL";
 const PRIVACY_URL = "YOUR_PRIVACY_URL";
 
 export default function LoginScreen() {
+  const { width, height } = useWindowDimensions();
+
+  const isSmallScreen = width <= 375 || height <= 700;
+  const isLargeScreen = width >= 430 && height >= 850;
+
+  const horizontalPadding = isSmallScreen ? 18 : 26;
+
+  const bottomSpacing = isSmallScreen ? 16 : isLargeScreen ? 36 : 30;
+
+  // Compact typography only on short/narrow phones.
+  const brandTitleSize = isSmallScreen ? 34 : isLargeScreen ? 46 : 43;
+  const taglineSize = isSmallScreen ? 20 : isLargeScreen ? 25 : 24;
+  const subTaglineSize = isSmallScreen ? 18 : isLargeScreen ? 23 : 22;
+
+  // Preserve comfortable tap targets while reducing vertical usage.
+  const authButtonHeight = isSmallScreen ? 50 : isLargeScreen ? 60 : 58;
+
+  // Small-phone spacing only. Medium and large remain unchanged.
+  const brandBottomSpacing = isSmallScreen ? 12 : isLargeScreen ? 30 : 28;
+  const authGap = isSmallScreen ? 8 : 12;
+  const legalTopSpacing = isSmallScreen ? 6 : 12;
   const [loadingProvider, setLoadingProvider] = useState<
     "google" | "telegram" | null
   >(null);
@@ -55,10 +77,7 @@ export default function LoginScreen() {
 
   async function openLegalLink(url: string) {
     if (!url || url.startsWith("YOUR_")) {
-      showMessage(
-        "Coming soon",
-        "This page is not available yet.",
-      );
+      showMessage("Coming soon", "This page is not available yet.");
       return;
     }
 
@@ -73,10 +92,7 @@ export default function LoginScreen() {
     } catch (error) {
       console.log("Legal link error:", error);
 
-      showMessage(
-        "Unable to open page",
-        "Please try again.",
-      );
+      showMessage("Unable to open page", "Please try again.");
     }
   }
 
@@ -87,22 +103,15 @@ export default function LoginScreen() {
 
     const queryParams = parsed.queryParams ?? {};
 
-    const code =
-      typeof queryParams.code === "string"
-        ? queryParams.code
-        : null;
+    const code = typeof queryParams.code === "string" ? queryParams.code : null;
 
     if (code) {
       console.log("OAuth callback contains PKCE code");
 
-      const { data, error } =
-        await supabase.auth.exchangeCodeForSession(code);
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
       if (error) {
-        console.log(
-          "OAuth code exchange error:",
-          error,
-        );
+        console.log("OAuth code exchange error:", error);
 
         throw error;
       }
@@ -113,9 +122,7 @@ export default function LoginScreen() {
         );
       }
 
-      console.log(
-        "OAuth session created successfully",
-      );
+      console.log("OAuth session created successfully");
 
       router.replace("/");
       return;
@@ -135,37 +142,26 @@ export default function LoginScreen() {
 
       const hashParams = new URLSearchParams(hash);
 
-      const accessToken =
-        hashParams.get("access_token");
+      const accessToken = hashParams.get("access_token");
 
-      const refreshToken =
-        hashParams.get("refresh_token");
+      const refreshToken = hashParams.get("refresh_token");
 
-      const errorDescription =
-        hashParams.get("error_description");
+      const errorDescription = hashParams.get("error_description");
 
       if (errorDescription) {
-        throw new Error(
-          decodeURIComponent(errorDescription),
-        );
+        throw new Error(decodeURIComponent(errorDescription));
       }
 
       if (accessToken && refreshToken) {
-        console.log(
-          "OAuth callback contains session tokens",
-        );
+        console.log("OAuth callback contains session tokens");
 
-        const { data, error } =
-          await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
+        const { data, error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
 
         if (error) {
-          console.log(
-            "OAuth setSession error:",
-            error,
-          );
+          console.log("OAuth setSession error:", error);
 
           throw error;
         }
@@ -176,9 +172,7 @@ export default function LoginScreen() {
           );
         }
 
-        console.log(
-          "OAuth session restored successfully",
-        );
+        console.log("OAuth session restored successfully");
 
         router.replace("/");
         return;
@@ -199,9 +193,7 @@ export default function LoginScreen() {
     }
 
     if (session) {
-      console.log(
-        "Existing OAuth session found successfully",
-      );
+      console.log("Existing OAuth session found successfully");
 
       router.replace("/");
       return;
@@ -212,82 +204,54 @@ export default function LoginScreen() {
     );
   }
 
-  async function startNativeOAuth(
-    provider: "google" | "custom:telegram",
-  ) {
-    console.log(
-      "Starting native OAuth:",
+  async function startNativeOAuth(provider: "google" | "custom:telegram") {
+    console.log("Starting native OAuth:", provider);
+
+    console.log("Native redirect URL:", NATIVE_REDIRECT_URL);
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
-    );
+      options: {
+        redirectTo: NATIVE_REDIRECT_URL,
 
-    console.log(
-      "Native redirect URL:",
-      NATIVE_REDIRECT_URL,
-    );
-
-    const { data, error } =
-      await supabase.auth.signInWithOAuth({
-        provider,
-        options: {
-          redirectTo: NATIVE_REDIRECT_URL,
-
-          /*
-           * Critical for native:
-           * Supabase gives us the provider URL,
-           * but we open it ourselves.
-           */
-          skipBrowserRedirect: true,
-        },
-      });
+        /*
+         * Critical for native:
+         * Supabase gives us the provider URL,
+         * but we open it ourselves.
+         */
+        skipBrowserRedirect: true,
+      },
+    });
 
     if (error) {
-      console.log(
-        "Supabase OAuth start error:",
-        error,
-      );
+      console.log("Supabase OAuth start error:", error);
 
       throw error;
     }
 
     if (!data?.url) {
-      throw new Error(
-        "Supabase did not return an OAuth URL.",
-      );
+      throw new Error("Supabase did not return an OAuth URL.");
     }
 
     console.log("Opening OAuth provider...");
 
-    const result =
-      await WebBrowser.openAuthSessionAsync(
-        data.url,
-        NATIVE_REDIRECT_URL,
-      );
-
-    console.log(
-      "OAuth browser result type:",
-      result.type,
+    const result = await WebBrowser.openAuthSessionAsync(
+      data.url,
+      NATIVE_REDIRECT_URL,
     );
 
-    if (
-      result.type === "cancel" ||
-      result.type === "dismiss"
-    ) {
+    console.log("OAuth browser result type:", result.type);
+
+    if (result.type === "cancel" || result.type === "dismiss") {
       return;
     }
 
-    if (
-      result.type === "success" &&
-      "url" in result &&
-      result.url
-    ) {
+    if (result.type === "success" && "url" in result && result.url) {
       await finishNativeOAuth(result.url);
       return;
     }
 
-    console.log(
-      "OAuth finished without a callback URL:",
-      result,
-    );
+    console.log("OAuth finished without a callback URL:", result);
   }
 
   async function handleGoogleSignIn() {
@@ -302,21 +266,16 @@ export default function LoginScreen() {
        * WEB
        */
       if (Platform.OS === "web") {
-        const redirectTo =
-          `${window.location.origin}/auth/callback`;
+        const redirectTo = `${window.location.origin}/auth/callback`;
 
-        console.log(
-          "Google web redirect:",
-          redirectTo,
-        );
+        console.log("Google web redirect:", redirectTo);
 
-        const { error } =
-          await supabase.auth.signInWithOAuth({
-            provider: "google",
-            options: {
-              redirectTo,
-            },
-          });
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "google",
+          options: {
+            redirectTo,
+          },
+        });
 
         if (error) {
           throw error;
@@ -330,10 +289,7 @@ export default function LoginScreen() {
        */
       await startNativeOAuth("google");
     } catch (error: any) {
-      console.log(
-        "Google sign-in error:",
-        error,
-      );
+      console.log("Google sign-in error:", error);
 
       showMessage(
         t("login.signInFailed"),
@@ -356,21 +312,16 @@ export default function LoginScreen() {
        * WEB
        */
       if (Platform.OS === "web") {
-        const redirectTo =
-          `${window.location.origin}/auth/callback`;
+        const redirectTo = `${window.location.origin}/auth/callback`;
 
-        console.log(
-          "Telegram web redirect:",
-          redirectTo,
-        );
+        console.log("Telegram web redirect:", redirectTo);
 
-        const { error } =
-          await supabase.auth.signInWithOAuth({
-            provider: "custom:telegram",
-            options: {
-              redirectTo,
-            },
-          });
+        const { error } = await supabase.auth.signInWithOAuth({
+          provider: "custom:telegram",
+          options: {
+            redirectTo,
+          },
+        });
 
         if (error) {
           throw error;
@@ -382,14 +333,9 @@ export default function LoginScreen() {
       /*
        * IOS / ANDROID
        */
-      await startNativeOAuth(
-        "custom:telegram",
-      );
+      await startNativeOAuth("custom:telegram");
     } catch (error: any) {
-      console.log(
-        "Telegram sign-in error:",
-        error,
-      );
+      console.log("Telegram sign-in error:", error);
 
       showMessage(
         t("login.signInFailed"),
@@ -401,10 +347,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <SafeAreaView
-      style={styles.safeArea}
-      edges={["top", "bottom"]}
-    >
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.container}>
         <ExpoImage
           source={LOGIN_HERO}
@@ -415,10 +358,7 @@ export default function LoginScreen() {
           transition={0}
         />
 
-        <View
-          pointerEvents="none"
-          style={styles.photoOverlay}
-        />
+        <View pointerEvents="none" style={styles.photoOverlay} />
 
         <LinearGradient
           pointerEvents="none"
@@ -431,62 +371,79 @@ export default function LoginScreen() {
             "rgba(7,9,8,0.78)",
             "rgba(7,9,8,0.90)",
           ]}
-          locations={[
-            0,
-            0.12,
-            0.25,
-            0.42,
-            0.6,
-            0.8,
-            1,
-          ]}
+          locations={[0, 0.12, 0.25, 0.42, 0.6, 0.8, 1]}
           style={styles.bottomGradient}
         />
 
-        <View
-          pointerEvents="box-none"
-          style={styles.content}
-        >
-          <View style={styles.loginPanel}>
-            <View style={styles.brandArea}>
-              <Text style={styles.brandTitle}>
-                Addis{" "}
-                <Text style={styles.brandAccent}>
-                  Football
-                </Text>
+        <View pointerEvents="box-none" style={styles.content}>
+          <View
+            style={[
+              styles.loginPanel,
+              Platform.OS !== "web" && {
+                left: horizontalPadding,
+                right: horizontalPadding,
+                bottom: bottomSpacing,
+              },
+            ]}
+          >
+            <View
+              style={[styles.brandArea, { marginBottom: brandBottomSpacing }]}
+            >
+              <Text
+                style={[
+                  styles.brandTitle,
+                  {
+                    fontSize: brandTitleSize,
+                    lineHeight: brandTitleSize + 7,
+                  },
+                ]}
+              >
+                Addis <Text style={styles.brandAccent}>Football</Text>
               </Text>
 
-              <Text style={styles.tagline}>
+              <Text
+                style={[
+                  styles.tagline,
+                  {
+                    fontSize: taglineSize,
+                    lineHeight: taglineSize + 6,
+                  },
+                ]}
+              >
                 Find your game.
               </Text>
 
-              <Text style={styles.subTagline}>
+              <Text
+                style={[
+                  styles.subTagline,
+                  {
+                    fontSize: subTaglineSize,
+                    lineHeight: subTaglineSize + 7,
+                  },
+                ]}
+              >
                 Join. Play. Connect.
               </Text>
             </View>
 
-            <View style={styles.authArea}>
+            <View style={[styles.authArea, { gap: authGap }]}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={t(
-                  "login.continueGoogle",
-                )}
+                accessibilityLabel={t("login.continueGoogle")}
                 disabled={loading}
                 onPress={handleGoogleSignIn}
                 style={({ pressed }) => [
                   styles.googleButton,
-                  pressed &&
-                    !loading &&
-                    styles.googleButtonPressed,
-                  loading &&
-                    styles.authButtonDisabled,
+                  {
+                    height: authButtonHeight,
+                    borderRadius: authButtonHeight / 2,
+                  },
+                  pressed && !loading && styles.googleButtonPressed,
+                  loading && styles.authButtonDisabled,
                 ]}
               >
                 {loadingProvider === "google" ? (
-                  <ActivityIndicator
-                    size="small"
-                    color="#4285F4"
-                  />
+                  <ActivityIndicator size="small" color="#4285F4" />
                 ) : (
                   <>
                     <Image
@@ -495,9 +452,7 @@ export default function LoginScreen() {
                       resizeMode="contain"
                     />
 
-                    <Text
-                      style={styles.googleButtonText}
-                    >
+                    <Text style={styles.googleButtonText}>
                       {t("login.continueGoogle")}
                     </Text>
                   </>
@@ -506,74 +461,50 @@ export default function LoginScreen() {
 
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={t(
-                  "login.continueTelegram",
-                )}
+                accessibilityLabel={t("login.continueTelegram")}
                 disabled={loading}
                 onPress={handleTelegramSignIn}
                 style={({ pressed }) => [
                   styles.telegramButton,
-                  pressed &&
-                    !loading &&
-                    styles.telegramButtonPressed,
-                  loading &&
-                    styles.authButtonDisabled,
+                  {
+                    height: authButtonHeight,
+                    borderRadius: authButtonHeight / 2,
+                  },
+                  pressed && !loading && styles.telegramButtonPressed,
+                  loading && styles.authButtonDisabled,
                 ]}
               >
-                {loadingProvider ===
-                "telegram" ? (
+                {loadingProvider === "telegram" ? (
                   <>
-                    <ActivityIndicator
-                      size="small"
-                      color="#FFFFFF"
-                    />
+                    <ActivityIndicator size="small" color="#FFFFFF" />
 
-                    <Text
-                      style={
-                        styles.telegramButtonText
-                      }
-                    >
+                    <Text style={styles.telegramButtonText}>
                       {t("login.connecting")}
                     </Text>
                   </>
                 ) : (
                   <>
-                    <Ionicons
-                      name="paper-plane"
-                      size={24}
-                      color="#FFFFFF"
-                    />
+                    <Ionicons name="paper-plane" size={24} color="#FFFFFF" />
 
-                    <Text
-                      style={
-                        styles.telegramButtonText
-                      }
-                    >
-                      {t(
-                        "login.continueTelegram",
-                      )}
+                    <Text style={styles.telegramButtonText}>
+                      {t("login.continueTelegram")}
                     </Text>
                   </>
                 )}
               </Pressable>
 
-              <View style={styles.legalRow}>
+              <View style={[styles.legalRow, { marginTop: legalTopSpacing }]}>
                 <Pressable
                   accessibilityRole="link"
                   accessibilityLabel="Terms of Service"
                   hitSlop={10}
-                  onPress={() =>
-                    openLegalLink(TERMS_URL)
-                  }
+                  onPress={() => openLegalLink(TERMS_URL)}
                   style={({ pressed }) => [
                     styles.legalPressable,
-                    pressed &&
-                      styles.legalPressablePressed,
+                    pressed && styles.legalPressablePressed,
                   ]}
                 >
-                  <Text style={styles.legalText}>
-                    Terms of Service
-                  </Text>
+                  <Text style={styles.legalText}>Terms of Service</Text>
                 </Pressable>
 
                 <Text
@@ -588,18 +519,13 @@ export default function LoginScreen() {
                   accessibilityRole="link"
                   accessibilityLabel="Privacy Policy"
                   hitSlop={10}
-                  onPress={() =>
-                    openLegalLink(PRIVACY_URL)
-                  }
+                  onPress={() => openLegalLink(PRIVACY_URL)}
                   style={({ pressed }) => [
                     styles.legalPressable,
-                    pressed &&
-                      styles.legalPressablePressed,
+                    pressed && styles.legalPressablePressed,
                   ]}
                 >
-                  <Text style={styles.legalText}>
-                    Privacy Policy
-                  </Text>
+                  <Text style={styles.legalText}>Privacy Policy</Text>
                 </Pressable>
               </View>
             </View>

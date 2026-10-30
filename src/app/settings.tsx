@@ -77,7 +77,8 @@ export default function SettingsScreen() {
           return;
         }
 
-        const nextIsOrganizer = data?.role === "organizer";
+        const nextIsOrganizer =
+          data?.role === "organizer" || data?.role === "admin";
 
         organizerRoleCache[userId] = nextIsOrganizer;
         setIsOrganizer(nextIsOrganizer);

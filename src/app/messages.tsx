@@ -16,8 +16,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { COLORS } from "../../constants/colors";
-import { supabase } from "../../lib/supabase";
+import { COLORS } from "../constants/colors";
+import { supabase } from "../lib/supabase";
 
 type Conversation = {
   id: string;
@@ -139,9 +139,8 @@ export default function Messages() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
-  const profileCacheRef = useRef<Record<string, CachedPlayerProfile>>(
-    messagesProfileCache,
-  );
+  const profileCacheRef =
+    useRef<Record<string, CachedPlayerProfile>>(messagesProfileCache);
 
   const loadedRef = useRef(false);
 
@@ -451,6 +450,17 @@ export default function Messages() {
         ListHeaderComponent={
           <>
             <View style={styles.header}>
+              <Pressable
+                onPress={() => router.back()}
+                hitSlop={10}
+                style={({ pressed }) => [
+                  styles.backButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons name="chevron-back" size={26} color={COLORS.text} />
+              </Pressable>
+
               <Text style={styles.title}>Messages</Text>
             </View>
 
@@ -674,7 +684,19 @@ const styles = StyleSheet.create({
   },
 
   header: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 18,
+  },
+
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: -8,
+    marginRight: 4,
   },
 
   title: {

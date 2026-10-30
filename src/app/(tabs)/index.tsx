@@ -4,6 +4,7 @@ import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Calendar } from "react-native-calendars";
 import * as Location from "expo-location";
 import { Modal } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 import {
   ActivityIndicator,
   Alert,
@@ -93,6 +94,7 @@ const GAME_DATE_FORMATTER = new Intl.DateTimeFormat("en-US-u-ca-gregory", {
 const discoverGamesCache: Record<string, DiscoverGame[]> = {};
 
 export default function HomeScreen() {
+  const { colors, isDark } = useTheme();
   const router = useRouter();
   const { language, t } = useLanguage();
   const { width } = useWindowDimensions();
@@ -461,9 +463,7 @@ export default function HomeScreen() {
     return games.map((game) => ({
       ...game,
       distanceKm:
-        playerLocation &&
-        game.latitude != null &&
-        game.longitude != null
+        playerLocation && game.latitude != null && game.longitude != null
           ? calculateDistanceKm(
               playerLocation.latitude,
               playerLocation.longitude,
@@ -660,8 +660,11 @@ export default function HomeScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <View style={styles.container}>
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: colors.background }]}
+      edges={["top"]}
+    >
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <FlatList
           data={listRows}
           key={`games-${listColumnCount}-${isSearchMode ? "search" : "browse"}`}
@@ -728,10 +731,6 @@ export default function HomeScreen() {
                       value={search}
                       onChangeText={(text) => {
                         setSearch(text);
-
-                        if (text.length === 0) {
-                          setSearchFocused(false);
-                        }
                       }}
                       onFocus={() => setSearchFocused(true)}
                       onBlur={() => setSearchFocused(false)}
@@ -752,7 +751,7 @@ export default function HomeScreen() {
                         style={styles.searchActionButton}
                         onPress={() => {
                           setSearch("");
-                          setSearchFocused(false);
+                          setSearchFocused(true);
                         }}
                         hitSlop={8}
                       >
@@ -786,147 +785,138 @@ export default function HomeScreen() {
                   </View>
                 </View>
               ) : (
-                <View
-                  style={[
-                    styles.hero,
-                    isSmallScreen && styles.heroSmall,
-                    isLargeScreen && styles.heroLarge,
-                    isDesktopWeb && styles.heroDesktopFullBleed,
-                  ]}
-                >
-                  <Image
-                    source={require("../../../assets/images/discover-hero.jpg")}
-                    style={styles.heroArtwork}
-                    resizeMode="cover"
-                  />
-                  <View style={styles.heroOverlay} />
-                  <View style={styles.heroBottomShade} />
-                  <View
-                    style={[
-                      styles.heroContent,
-                      isSmallScreen && styles.heroContentSmall,
-                      isLargeScreen && styles.heroContentLarge,
-                    ]}
-                  >
-                    <View style={styles.heroTopBar}>
-                      <View>
-                        <Text style={styles.heroBrand}>
-                          Addis{" "}
-                          <Text style={styles.heroBrandAccent}>Football</Text>
-                        </Text>
-                        <Pressable
-                          style={styles.heroLocation}
-                          onPress={() => setCityModalVisible(true)}
-                        >
-                          <Ionicons
-                            name="location-outline"
-                            size={16}
-                            color="rgba(255,255,255,0.85)"
-                          />
-                          <Text style={styles.heroLocationText}>
-                            {selectedCity === "All Ethiopia"
-                              ? t("discover.allEthiopia")
-                              : selectedCity}
-                          </Text>
-                          <Ionicons
-                            name="chevron-down"
-                            size={15}
-                            color="rgba(255,255,255,0.85)"
-                          />
-                        </Pressable>
-                      </View>
+                <View style={styles.compactDiscoverHeader}>
+                  <View style={styles.compactTopRow}>
+                    <Text
+                      style={[
+                        styles.compactBrand,
+                        isDark && { color: colors.white },
+                      ]}
+                    >
+                      Addis{" "}
+                      <Text
+                        style={[
+                          styles.compactBrandAccent,
+                          isDark && { color: colors.primary },
+                        ]}
+                      >
+                        Football
+                      </Text>
+                    </Text>
+
+                    <View style={styles.compactTopActions}>
                       <Pressable
-                        style={styles.heroNotificationButton}
+                        style={styles.compactLocation}
+                        onPress={() => setCityModalVisible(true)}
+                        hitSlop={6}
+                      >
+                        <Ionicons
+                          name="location-outline"
+                          size={18}
+                          color={isDark ? colors.white : COLORS.text}
+                        />
+
+                        <Text
+                          style={[
+                            styles.compactLocationText,
+                            isDark && { color: colors.white },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {selectedCity === "All Ethiopia"
+                            ? t("discover.allEthiopia")
+                            : selectedCity}
+                        </Text>
+
+                        <Ionicons
+                          name="chevron-down"
+                          size={14}
+                          color={
+                            isDark ? colors.textSecondary : COLORS.textSecondary
+                          }
+                        />
+                      </Pressable>
+
+                      <Pressable
+                        style={styles.compactNotificationButton}
                         onPress={() => router.push("/notifications")}
                         accessibilityRole="button"
                         accessibilityLabel="Notifications"
+                        hitSlop={6}
                       >
                         <Ionicons
                           name="notifications-outline"
                           size={22}
-                          color="#F7F8FA"
+                          color={isDark ? colors.white : COLORS.text}
                         />
+
                         {hasUnreadNotifications && (
                           <View style={styles.notificationDot} />
                         )}
                       </Pressable>
                     </View>
-                    <View style={styles.heroMessage}>
-                      <Text
-                        style={[
-                          styles.heroTitle,
-                          isSmallScreen && styles.heroTitleSmall,
-                          isLargeScreen && styles.heroTitleLarge,
-                        ]}
-                      >
-                        {t("discover.findYourNextGame")}
-                      </Text>
+                  </View>
 
-                      <Text style={styles.heroSubtitle}>
-                        {t("discover.heroSubtitle")}
-                      </Text>
-                    </View>
-                    <View style={styles.heroSearchBox}>
-                      <Ionicons name="search" size={21} color="#14201B" />
-                      <TextInput
-                        value={search}
-                        onChangeText={(text) => {
-                          setSearch(text);
+                  <View style={styles.compactSearchBox}>
+                    <Ionicons name="search" size={21} color={COLORS.text} />
 
-                          if (text.length === 0) {
-                            setSearchFocused(false);
-                          }
-                        }}
-                        onFocus={() => setSearchFocused(true)}
-                        onBlur={() => setSearchFocused(false)}
-                        placeholder={t("discover.searchPlaceholder")}
-                        placeholderTextColor="#66766F"
-                        style={styles.heroSearchInput}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        returnKeyType="search"
-                        blurOnSubmit
-                        onSubmitEditing={() => Keyboard.dismiss()}
-                        clearButtonMode="never"
-                        selectionColor={COLORS.primary}
-                      />
-                      {search.length > 0 && (
-                        <Pressable
-                          style={styles.searchActionButton}
-                          onPress={() => {
-                            setSearch("");
-                            setSearchFocused(false);
-                          }}
-                          hitSlop={8}
-                        >
-                          <Ionicons
-                            name="close"
-                            size={22}
-                            color={COLORS.textSecondary}
-                          />
-                        </Pressable>
-                      )}
-                      <View style={styles.heroSearchDivider} />
+                    <TextInput
+                      value={search}
+                      onChangeText={(text) => {
+                        setSearch(text);
+                      }}
+                      onFocus={() => setSearchFocused(true)}
+                      onBlur={() => setSearchFocused(false)}
+                      placeholder={t("discover.searchPlaceholder")}
+                      placeholderTextColor="#66766F"
+                      style={styles.compactSearchInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                      blurOnSubmit
+                      onSubmitEditing={() => Keyboard.dismiss()}
+                      clearButtonMode="never"
+                      selectionColor={COLORS.primary}
+                    />
+
+                    {search.length > 0 && (
                       <Pressable
-                        style={[
-                          styles.heroFilterButton,
-                          (distanceFilter || skillFilter || startTimeFilter) &&
-                            styles.heroFilterButtonActive,
-                        ]}
-                        onPress={() => setFilterModalVisible(true)}
-                        hitSlop={6}
+                        style={styles.searchActionButton}
+                        onPress={() => {
+                          setSearch("");
+                          setSearchFocused(true);
+                        }}
+                        hitSlop={8}
                       >
                         <Ionicons
-                          name="options-outline"
-                          size={21}
-                          color={
-                            distanceFilter || skillFilter || startTimeFilter
-                              ? "#F7F8FA"
-                              : COLORS.primary
-                          }
+                          name="close"
+                          size={22}
+                          color={COLORS.textSecondary}
                         />
                       </Pressable>
-                    </View>
+                    )}
+
+                    <View style={styles.heroSearchDivider} />
+
+                    <Pressable
+                      style={[
+                        styles.heroFilterButton,
+                        (distanceFilter || skillFilter || startTimeFilter) &&
+                          styles.heroFilterButtonActive,
+                      ]}
+                      onPress={() => setFilterModalVisible(true)}
+                      hitSlop={6}
+                    >
+                      <Ionicons
+                        name="options-outline"
+                        size={21}
+                        color={
+                          distanceFilter || skillFilter || startTimeFilter
+                            ? "#F7F8FA"
+                            : COLORS.primary
+                        }
+                      />
+                    </Pressable>
                   </View>
                 </View>
               )}
@@ -1108,8 +1098,8 @@ export default function HomeScreen() {
                     </View>
 
                     <Text style={styles.discoverySectionMeta}>
-                      {playingSoonGames.length}{" "}
-                      {playingSoonGames.length === 1
+                      {visibleGames.length}{" "}
+                      {visibleGames.length === 1
                         ? t("discover.game")
                         : t("discover.gamesCount")}
                     </Text>
@@ -1155,7 +1145,7 @@ export default function HomeScreen() {
                             pressed && { opacity: 0.6 },
                           ]}
                           onPress={toggleProximitySort}
-                        disabled={locationLoading}
+                          disabled={locationLoading}
                         >
                           <Ionicons
                             name="location-outline"
@@ -1442,11 +1432,7 @@ export default function HomeScreen() {
                           active && styles.filterChipActive,
                         ]}
                         onPress={async () => {
-                          const nextValue = value as
-                            | "2"
-                            | "5"
-                            | "10"
-                            | null;
+                          const nextValue = value as "2" | "5" | "10" | null;
 
                           if (nextValue === null) {
                             setDistanceFilter(null);
@@ -1587,7 +1573,6 @@ export default function HomeScreen() {
   );
 }
 
-
 const GameCardItem = memo(function GameCardItem({
   game,
   onOpen,
@@ -1619,6 +1604,8 @@ function HorizontalGameCardComponent({
   onPress: () => void;
   formatDate: (timestamp: string) => string;
 }) {
+  const { width } = useWindowDimensions();
+  const isSmallPhone = width < 375;
   const isFull = game.status === "full" || game.spotsLeft <= 0;
   const isFree = game.payment_method === "free" || Number(game.price) === 0;
 
@@ -1645,7 +1632,15 @@ function HorizontalGameCardComponent({
         pressed && styles.horizontalGameCardPressed,
       ]}
     >
-      <View style={styles.horizontalGameArtwork}>
+      <View
+        style={[
+          styles.horizontalGameArtwork,
+          isSmallPhone && {
+            width: 104,
+            minWidth: 104,
+          },
+        ]}
+      >
         {game.image_url ? (
           <Image
             source={{ uri: game.image_url }}
@@ -1667,7 +1662,15 @@ function HorizontalGameCardComponent({
         )}
       </View>
 
-      <View style={styles.horizontalGameInfo}>
+      <View
+        style={[
+          styles.horizontalGameInfo,
+          isSmallPhone && {
+            paddingHorizontal: 12,
+            paddingVertical: 12,
+          },
+        ]}
+      >
         <View style={styles.horizontalGameTopRow}>
           <Text numberOfLines={2} style={styles.horizontalGameTitle}>
             {game.title}
@@ -1689,7 +1692,15 @@ function HorizontalGameCardComponent({
           <View style={styles.gameTimeRow}>
             <View style={styles.gameTimeRange}>
               <Ionicons name="time-outline" size={17} color={COLORS.primary} />
-              <Text numberOfLines={1} style={styles.gameTimeText}>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.gameTimeText,
+                  isSmallPhone && {
+                    fontSize: 13,
+                  },
+                ]}
+              >
                 {startTimeLabel}
                 {endTimeLabel ? ` – ${endTimeLabel}` : ""}
               </Text>
@@ -1712,9 +1723,11 @@ function HorizontalGameCardComponent({
           <Text numberOfLines={1} style={styles.horizontalMetaText}>
             {game.area}
             {game.distanceKm !== null
-              ? ` · ${game.distanceKm < 1
-                  ? `${Math.round(game.distanceKm * 1000)} m`
-                  : `${game.distanceKm.toFixed(1)} km`}`
+              ? ` · ${
+                  game.distanceKm < 1
+                    ? `${Math.round(game.distanceKm * 1000)} m`
+                    : `${game.distanceKm.toFixed(1)} km`
+                }`
               : ""}
           </Text>
         </View>
@@ -1754,7 +1767,6 @@ function HorizontalGameCardComponent({
     </Pressable>
   );
 }
-
 
 const HorizontalGameCard = memo(
   HorizontalGameCardComponent,
@@ -2154,6 +2166,81 @@ const styles = StyleSheet.create({
     marginLeft: -8,
     marginRight: 4,
   },
+  compactDiscoverHeader: {
+    marginBottom: 9,
+  },
+
+  compactTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+
+  compactBrand: {
+    color: COLORS.text,
+    fontSize: 22,
+    fontWeight: "900",
+    letterSpacing: -0.6,
+  },
+
+  compactBrandAccent: {
+    color: COLORS.primary,
+  },
+
+  compactTopActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 1,
+    marginLeft: 12,
+  },
+
+  compactLocation: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    flexShrink: 1,
+  },
+
+  compactLocationText: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: "700",
+    flexShrink: 1,
+    maxWidth: 105,
+  },
+
+  compactNotificationButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  compactSearchBox: {
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 16,
+    paddingRight: 6,
+    boxShadow: "0 2px 5px rgba(0, 0, 0, 0.05)",
+    elevation: 1,
+  },
+
+  compactSearchInput: {
+    flex: 1,
+    minWidth: 0,
+    marginLeft: 9,
+    marginRight: 4,
+    color: COLORS.text,
+    fontSize: 15,
+  },
 
   hero: {
     minHeight: 250,
@@ -2500,7 +2587,7 @@ const styles = StyleSheet.create({
 
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingTop: 8,
     paddingBottom: 24,
   },
 

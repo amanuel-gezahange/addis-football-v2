@@ -46,12 +46,14 @@ type PublicPlayerProfile = {
     id?: string;
     full_name?: string | null;
     avatar_url?: string | null;
+    role?: string | null;
 };
 
 type ChatHeaderProfile = {
     userId: string;
     name: string;
     avatar?: string;
+    role?: string;
 };
 
 type ChatListItem =
@@ -149,15 +151,16 @@ export default function CommunityChatScreen() {
     const keyboardVisibleRef = useRef(false);
 
     const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
     const [otherPlayer, setOtherPlayer] = useState<ChatHeaderProfile | null>(
         null,
     );
+
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [messageText, setMessageText] = useState("");
     const [loading, setLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [menuVisible, setMenuVisible] = useState(false);
-    const [playerInfoVisible, setPlayerInfoVisible] = useState(false);
 
     useEffect(() => {
         if (!conversationId) return;
@@ -211,7 +214,9 @@ export default function CommunityChatScreen() {
     const scrollToLatest = useCallback((animated = true) => {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                listRef.current?.scrollToEnd({ animated });
+                listRef.current?.scrollToEnd({
+                    animated,
+                });
             });
         });
     }, []);
@@ -246,7 +251,9 @@ export default function CommunityChatScreen() {
                 error: userError,
             } = await supabase.auth.getUser();
 
-            if (userError) throw userError;
+            if (userError) {
+                throw userError;
+            }
 
             if (!user) {
                 throw new Error(
@@ -269,7 +276,9 @@ export default function CommunityChatScreen() {
                     .select("conversation_id,user_id")
                     .eq("conversation_id", numericConversationId);
 
-            if (membershipError) throw membershipError;
+            if (membershipError) {
+                throw membershipError;
+            }
 
             const memberships = membershipData ?? [];
 
@@ -314,6 +323,7 @@ export default function CommunityChatScreen() {
                         userId: otherMembership.user_id,
                         name: profile?.full_name?.trim() || "Player",
                         avatar: profile?.avatar_url?.trim() || undefined,
+                        role: profile?.role?.trim() || "player",
                     };
 
                     setOtherPlayer(resolvedOtherPlayer);
@@ -326,17 +336,23 @@ export default function CommunityChatScreen() {
                 .from("community_messages")
                 .select("id,conversation_id,sender_id,content,created_at")
                 .eq("conversation_id", numericConversationId)
-                .order("created_at", { ascending: false })
+                .order("created_at", {
+                    ascending: false,
+                })
                 .limit(100);
 
-            if (messagesError) throw messagesError;
+            if (messagesError) {
+                throw messagesError;
+            }
 
             const rows = (messageData ?? []) as MessageRow[];
+
             const orderedRows = [...rows].reverse();
 
             const freshMessages = orderedRows.map(mapMessageRow);
 
             setMessages(freshMessages);
+
             setCachedCommunityChat(conversationId, {
                 messages: freshMessages,
                 otherPlayer: resolvedOtherPlayer,
@@ -365,7 +381,9 @@ export default function CommunityChatScreen() {
 
         const numericConversationId = Number(conversationId);
 
-        if (!Number.isFinite(numericConversationId)) return;
+        if (!Number.isFinite(numericConversationId)) {
+            return;
+        }
 
         const channel = supabase
             .channel(`community-chat-${numericConversationId}`)
@@ -379,6 +397,7 @@ export default function CommunityChatScreen() {
                 },
                 (payload) => {
                     const row = payload.new as MessageRow;
+
                     const realtimeMessage = mapMessageRow(row);
 
                     setMessages((current) => {
@@ -402,14 +421,19 @@ export default function CommunityChatScreen() {
 
                             if (optimisticIndex !== -1) {
                                 next = [...current];
+
                                 next[optimisticIndex] = realtimeMessage;
+
                                 syncMessageCache(next);
+
                                 return next;
                             }
                         }
 
                         next = [...current, realtimeMessage];
+
                         syncMessageCache(next);
+
                         return next;
                     });
 
@@ -453,10 +477,12 @@ export default function CommunityChatScreen() {
                     id: `date-${dateKey}`,
                     label: formatDateSeparator(message.createdAt),
                 });
+
                 previousDateKey = dateKey;
             }
 
             const previous = messages[index - 1];
+
             const next = messages[index + 1];
 
             items.push({
@@ -481,7 +507,9 @@ export default function CommunityChatScreen() {
 
         const numericConversationId = Number(conversationId);
 
-        if (!Number.isFinite(numericConversationId)) return;
+        if (!Number.isFinite(numericConversationId)) {
+            return;
+        }
 
         setErrorMessage(null);
 
@@ -499,9 +527,12 @@ export default function CommunityChatScreen() {
 
         setMessages((current) => {
             const next = [...current, optimisticMessage];
+
             syncMessageCache(next);
+
             return next;
         });
+
         setMessageText("");
         isNearBottomRef.current = true;
 
@@ -520,7 +551,9 @@ export default function CommunityChatScreen() {
                 .select("id,conversation_id,sender_id,content,created_at")
                 .single();
 
-            if (error) throw error;
+            if (error) {
+                throw error;
+            }
 
             const realMessage = mapMessageRow(data as MessageRow);
 
@@ -536,6 +569,7 @@ export default function CommunityChatScreen() {
                       );
 
                 syncMessageCache(next);
+
                 return next;
             });
 
@@ -549,6 +583,7 @@ export default function CommunityChatScreen() {
                 );
 
                 syncMessageCache(next);
+
                 return next;
             });
 
@@ -596,10 +631,12 @@ export default function CommunityChatScreen() {
                         isMine
                             ? styles.messageBubbleMine
                             : styles.messageBubbleOther,
+
                         !firstInGroup &&
                             (isMine
                                 ? styles.mineConnectedTop
                                 : styles.otherConnectedTop),
+
                         !lastInGroup &&
                             (isMine
                                 ? styles.mineConnectedBottom
@@ -665,6 +702,13 @@ export default function CommunityChatScreen() {
         };
     }, [scrollToLatestAfterLayout]);
 
+    const otherPlayerRoleLabel =
+        otherPlayer?.role === "organizer"
+            ? "Organizer"
+            : otherPlayer?.role === "admin"
+              ? "Addis Football"
+              : "Player";
+
     return (
         <SafeAreaView edges={["top"]} style={styles.screen}>
             <KeyboardAvoidingView
@@ -692,11 +736,21 @@ export default function CommunityChatScreen() {
                             styles.headerProfile,
                             pressed && styles.headerProfilePressed,
                         ]}
-                        onPress={() => setPlayerInfoVisible(true)}
+                        onPress={() => {
+                            if (!otherPlayer?.userId) {
+                                return;
+                            }
+
+                            router.push(
+                                `/community/player/${otherPlayer.userId}`,
+                            );
+                        }}
                     >
                         {otherPlayer?.avatar ? (
                             <Image
-                                source={{ uri: otherPlayer.avatar }}
+                                source={{
+                                    uri: otherPlayer.avatar,
+                                }}
                                 style={styles.headerAvatar}
                             />
                         ) : (
@@ -715,7 +769,7 @@ export default function CommunityChatScreen() {
                             </Text>
 
                             <Text style={styles.headerSubtitle}>
-                                Addis Football
+                                {otherPlayerRoleLabel}
                             </Text>
                         </View>
                     </Pressable>
@@ -743,6 +797,7 @@ export default function CommunityChatScreen() {
                             size="small"
                             color={COLORS.primary}
                         />
+
                         <Text style={styles.stateText}>
                             Loading conversation...
                         </Text>
@@ -760,6 +815,7 @@ export default function CommunityChatScreen() {
                         <Text style={styles.stateTitle}>
                             Couldn't open chat
                         </Text>
+
                         <Text style={styles.stateText}>{errorMessage}</Text>
 
                         <Pressable
@@ -769,6 +825,7 @@ export default function CommunityChatScreen() {
                             ]}
                             onPress={() => {
                                 setLoading(true);
+
                                 void loadConversation();
                             }}
                         >
@@ -820,7 +877,9 @@ export default function CommunityChatScreen() {
                                     messages.length > 0
                                 ) {
                                     didInitialScrollRef.current = true;
+
                                     isNearBottomRef.current = true;
+
                                     scrollToLatestAfterLayout(false);
                                 }
                             }}
@@ -928,6 +987,7 @@ export default function CommunityChatScreen() {
                 )}
             </KeyboardAvoidingView>
 
+            {/* ===== END HALF 1 ===== */}
             <Modal
                 visible={menuVisible}
                 transparent
@@ -953,7 +1013,12 @@ export default function CommunityChatScreen() {
                             ]}
                             onPress={() => {
                                 setMenuVisible(false);
-                                setPlayerInfoVisible(true);
+
+                                if (!otherPlayer?.userId) return;
+
+                                router.push(
+                                    `/community/player/${otherPlayer.userId}`,
+                                );
                             }}
                         >
                             <View style={styles.menuItemIcon}>
@@ -966,10 +1031,11 @@ export default function CommunityChatScreen() {
 
                             <View style={styles.menuItemText}>
                                 <Text style={styles.menuItemTitle}>
-                                    Player info
+                                    View profile
                                 </Text>
+
                                 <Text style={styles.menuItemSubtitle}>
-                                    View this player's profile information
+                                    View this player's profile
                                 </Text>
                             </View>
 
@@ -989,70 +1055,6 @@ export default function CommunityChatScreen() {
                         >
                             <Text style={styles.menuCancelText}>Cancel</Text>
                         </Pressable>
-                    </Pressable>
-                </Pressable>
-            </Modal>
-
-            <Modal
-                visible={playerInfoVisible}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setPlayerInfoVisible(false)}
-            >
-                <Pressable
-                    style={styles.profileOverlay}
-                    onPress={() => setPlayerInfoVisible(false)}
-                >
-                    <Pressable
-                        style={styles.profileCard}
-                        onPress={(event) => event.stopPropagation()}
-                    >
-                        <Pressable
-                            style={styles.profileClose}
-                            onPress={() => setPlayerInfoVisible(false)}
-                        >
-                            <Ionicons
-                                name="close"
-                                size={22}
-                                color={COLORS.text}
-                            />
-                        </Pressable>
-
-                        {otherPlayer?.avatar ? (
-                            <Image
-                                source={{ uri: otherPlayer.avatar }}
-                                style={styles.profileAvatar}
-                            />
-                        ) : (
-                            <View style={styles.profileAvatarFallback}>
-                                <Ionicons
-                                    name="person"
-                                    size={34}
-                                    color={COLORS.primary}
-                                />
-                            </View>
-                        )}
-
-                        <Text style={styles.profileName}>
-                            {otherPlayer?.name ?? "Player"}
-                        </Text>
-
-                        <Text style={styles.profileLabel}>
-                            Addis Football player
-                        </Text>
-
-                        <View style={styles.profileNote}>
-                            <Ionicons
-                                name="information-circle-outline"
-                                size={18}
-                                color={COLORS.textSecondary}
-                            />
-                            <Text style={styles.profileNoteText}>
-                                More player actions can be added here once
-                                block, report, and mute are connected to the
-                                backend.
-                            </Text>
-                        </View>
                     </Pressable>
                 </Pressable>
             </Modal>
@@ -1419,6 +1421,9 @@ const styles = StyleSheet.create({
     },
 
     menuSheet: {
+        width: "100%",
+        maxWidth: 600,
+        alignSelf: "center",
         backgroundColor: COLORS.white,
         borderTopLeftRadius: 24,
         borderTopRightRadius: 24,
@@ -1499,88 +1504,5 @@ const styles = StyleSheet.create({
         color: COLORS.text,
         fontSize: 14,
         fontWeight: "800",
-    },
-
-    profileOverlay: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.28)",
-        alignItems: "center",
-        justifyContent: "center",
-        paddingHorizontal: 24,
-    },
-
-    profileCard: {
-        width: "100%",
-        maxWidth: 360,
-        backgroundColor: COLORS.white,
-        borderRadius: 24,
-        alignItems: "center",
-        paddingHorizontal: 22,
-        paddingTop: 30,
-        paddingBottom: 22,
-    },
-
-    profileClose: {
-        position: "absolute",
-        top: 12,
-        right: 12,
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: COLORS.surfaceAlt,
-    },
-
-    profileAvatar: {
-        width: 82,
-        height: 82,
-        borderRadius: 41,
-        backgroundColor: COLORS.surfaceAlt,
-    },
-
-    profileAvatarFallback: {
-        width: 82,
-        height: 82,
-        borderRadius: 41,
-        backgroundColor: COLORS.primarySoft,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-
-    profileName: {
-        color: COLORS.text,
-        fontSize: 20,
-        lineHeight: 25,
-        fontWeight: "900",
-        marginTop: 13,
-        textAlign: "center",
-    },
-
-    profileLabel: {
-        color: COLORS.textSecondary,
-        fontSize: 12,
-        lineHeight: 17,
-        fontWeight: "600",
-        marginTop: 3,
-    },
-
-    profileNote: {
-        width: "100%",
-        flexDirection: "row",
-        alignItems: "flex-start",
-        gap: 8,
-        backgroundColor: COLORS.surfaceAlt,
-        borderRadius: 14,
-        padding: 12,
-        marginTop: 20,
-    },
-
-    profileNoteText: {
-        flex: 1,
-        color: COLORS.textSecondary,
-        fontSize: 11,
-        lineHeight: 16,
-        fontWeight: "500",
     },
 });

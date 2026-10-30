@@ -322,7 +322,7 @@ const en = {
   },
 
   bookings: {
-    searchPlaceholder: "Search by game, location, or organizer",
+    searchPlaceholder: "Search bookings",
     openCalendar: "Open calendar",
     chooseDate: "Choose a date",
     calendarSubtitle: "Filter your upcoming bookings by date",
