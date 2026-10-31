@@ -504,10 +504,6 @@ export default function LoginScreen() {
             <View style={styles.pitchLineBottom} />
             <View style={styles.pitchCircle} />
           </View>
-
-          <Animated.View style={[styles.motionOrb, orbStyle]}>
-            <View style={styles.motionOrbCore} />
-          </Animated.View>
         </View>
         <View
           style={[
