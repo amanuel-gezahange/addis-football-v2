@@ -1,0 +1,14 @@
+{
+  "$schema": "https://kinetik-ui.dev/schema/kinetik.json",
+  "registry": "https://kinetik-ui.dev/r",
+  "componentsDir": "src/components/kinetik",
+  "libDir": "src/lib/kinetik",
+  "installed": {
+    "aurora-veil": "1.0.0",
+    "grain-drift": "1.0.0",
+    "kinetik-clock": "1.4.2",
+    "kinetik-motion": "1.4.2",
+    "kinetik-shaders": "1.4.2",
+    "kinetik-tokens": "1.4.2"
+  }
+}
